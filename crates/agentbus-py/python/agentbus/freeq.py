@@ -8,8 +8,8 @@ REGISTER, AGENT MANIFEST, PRESENCE, HEARTBEAT), joins #bots and says what it pro
     @+agentbus/provides=weather.current,weather.forecast;+agentbus/host=<id> TAGMSG #bots
 
 It says so again whenever anyone asks (``@+agentbus/discover=1 TAGMSG #bots``) and whenever its
-functions change. The same names go in its manifest's ``[capabilities.channels]`` for #bots, so
-``GET /api/v1/channels/%23bots/agent-capabilities`` lists them too.
+functions change. The same names go in its manifest's ``[capabilities.channels]`` for #bots,
+which freeq serves at ``GET /api/v1/agents/manifests/{did}``.
 
 Calls are tag-only DMs to the proc's nick, answered by the proc itself::
 

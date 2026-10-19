@@ -100,8 +100,10 @@ PRESENCE, HEARTBEAT), joins `#bots`, and announces what it provides:
 @+agentbus/provides=files.list,weather.current;+agentbus/host=<id> TAGMSG #bots
 ```
 
-The same names go in its manifest under `[capabilities.channels] "#bots"`, so freeq's
-`/api/v1/channels/%23bots/agent-capabilities` lists them too. It announces again when its
+The same names go in its manifest under `[capabilities.channels] "#bots"`, readable at freeq's
+`/api/v1/agents/manifests/{did}`. (freeq's "Manifest registered … Capabilities:" notice and its
+`/api/v1/channels/{name}/agent-capabilities` list only default capabilities and operator grants,
+so they show none.) It announces again when its
 functions change and whenever someone sends `@+agentbus/discover=1 TAGMSG #bots`.
 
 `examples/bridge.py` (`pixi run bridge`, one per host) joins `#bots`, asks who provides what, and
