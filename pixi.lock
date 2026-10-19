@@ -177,7 +177,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/python-gil-3.13.16-h4df99d1_102.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/python_abi-3.13-9_cp313.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2026c-h151e31d_0.conda
-      - conda: https://prefix.dev/nandi-testing/linux-64/agentbus-0.1.0-py313h04f4ec0_12.conda
+      - conda: https://prefix.dev/nandi-testing/linux-64/agentbus-0.1.0-py313h04f4ec0_15.conda
       linux-aarch64:
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/_openmp_mutex-4.5-20_gnu.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/bzip2-1.0.8-h4777abc_10.conda
@@ -212,7 +212,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/python-gil-3.13.16-h4df99d1_102.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/python_abi-3.13-9_cp313.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2026c-h151e31d_0.conda
-      - conda: https://prefix.dev/nandi-testing/linux-aarch64/agentbus-0.1.0-py313h972c971_12.conda
+      - conda: https://prefix.dev/nandi-testing/linux-aarch64/agentbus-0.1.0-py313h972c971_15.conda
   gui:
     channels:
     - url: https://conda.anaconda.org/conda-forge/
@@ -333,7 +333,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/python-gil-3.13.16-h4df99d1_102.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/python_abi-3.13-9_cp313.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2026c-h151e31d_0.conda
-      - conda: https://prefix.dev/nandi-testing/linux-64/agentbus-0.1.0-py313h04f4ec0_12.conda
+      - conda: https://prefix.dev/nandi-testing/linux-64/agentbus-0.1.0-py313h04f4ec0_15.conda
       linux-aarch64:
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/_openmp_mutex-4.5-20_gnu.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/alsa-lib-1.2.16.1-h5bc82ec_1.conda
@@ -449,7 +449,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/python-gil-3.13.16-h4df99d1_102.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/python_abi-3.13-9_cp313.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2026c-h151e31d_0.conda
-      - conda: https://prefix.dev/nandi-testing/linux-aarch64/agentbus-0.1.0-py313h972c971_12.conda
+      - conda: https://prefix.dev/nandi-testing/linux-aarch64/agentbus-0.1.0-py313h972c971_15.conda
 packages:
 - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
   build_number: 20
@@ -4189,9 +4189,9 @@ packages:
   run_exports: {}
   size: 118849
   timestamp: 1784250406640
-- conda: https://prefix.dev/nandi-testing/linux-64/agentbus-0.1.0-py313h04f4ec0_12.conda
-  sha256: ab8d9b78c6440a34f2317182bbfe904a88c8bfe7705da0fe8c658195b79cdf13
-  md5: cb1355f168728423a61135b3b5e722d8
+- conda: https://prefix.dev/nandi-testing/linux-64/agentbus-0.1.0-py313h04f4ec0_15.conda
+  sha256: 80fe294d50b9e5e4b6e3702ec114e36f164d541aef06aff157d0492f41da17fd
+  md5: a78cb7d0f03e69d2822df6c89e78fdad
   depends:
   - python
   - dbus
@@ -4202,11 +4202,11 @@ packages:
   - __glibc >=2.17
   license: MIT
   run_exports: {}
-  size: 3104733
-  timestamp: 1792380054937
-- conda: https://prefix.dev/nandi-testing/linux-aarch64/agentbus-0.1.0-py313h972c971_12.conda
-  sha256: a4e84e97ebb0e75334e92b982133d17384423ff98818a417ea7e98697fadeaee
-  md5: c510182a5514f26efa7f2b1bc47bc7d3
+  size: 3104463
+  timestamp: 1792380343499
+- conda: https://prefix.dev/nandi-testing/linux-aarch64/agentbus-0.1.0-py313h972c971_15.conda
+  sha256: 1e77ffeec830a974598067b2b79411e554abc8620723b6015a0e7a5894ff4c71
+  md5: a2e9f71861120165c3805329139a9366
   depends:
   - python
   - dbus
@@ -4218,5 +4218,5 @@ packages:
   - __glibc >=2.17
   license: MIT
   run_exports: {}
-  size: 3130346
-  timestamp: 1792380163660
+  size: 3131004
+  timestamp: 1792380449864
