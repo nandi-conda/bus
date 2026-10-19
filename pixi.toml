@@ -53,6 +53,13 @@ test-py-local = { cmd = "dbus-run-session -- python -m unittest discover -s test
 # Build linux-64 + linux-aarch64 conda packages and upload to prefix.dev.
 publish = "bash recipe/publish.sh"
 
+# The file proc as an HTTPS XRPC service listing an S3 bucket (what runs on Modal).
+[feature.s3.dependencies]
+minio = ">=7.2"
+
+[feature.s3.tasks]
+files-service = "python examples/files/service.py"
+
 [feature.gui.dependencies]
 pyside6 = ">=6.7"
 
@@ -65,4 +72,5 @@ files-demo = "dbus-run-session -- python examples/files/demo.py"
 [environments]
 default = ["pkg"]
 gui = ["pkg", "gui"]
+files-service = ["pkg", "s3"]
 build = ["build"]

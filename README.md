@@ -98,7 +98,7 @@ writes one provider record in its rookery repo, collection `org.latha.agentbus.w
 `{endpoint, methods, createdAt}` (rookery validates it).
 
 The hub (`examples/hub.py`, `pixi run hub`) follows the services in `AGENTBUS_SERVICES`
-(default `weather`): it asks the relay (`AGENTBUS_RELAY`, default `https://bsky.network`) for
+(default `weather,files`): it asks the relay (`AGENTBUS_RELAY`, default `https://bsky.network`) for
 `com.atproto.sync.listReposByCollection?collection=org.latha.agentbus.weather` every minute,
 reads each repo's record from its PDS, and gives each provider its own connection to the hub
 (`agentbus/relay.py`, `agentbus/mirror.py`). `procs.call("weather.current", place="Berlin")`
@@ -111,6 +111,11 @@ start on `AGENTBUS_PDS` (default: the project's rookery on Modal), and gets a sh
 with `AGENTBUS_PDS` and `AGENTBUS_ENDPOINT`) answers only callers whose JWT checks out against
 the `#atproto` key in their DID document (`AGENTBUS_TRUST` narrows to a DID list). Without an
 identity a proc serves anyone and writes no record, so nothing discovers it.
+
+`examples/files/service.py` (`pixi run -e files-service files-service`) is the file proc as such
+a service: `org.latha.agentbus.files.list` lists an S3 bucket (`AGENTBUS_FILES_S3`,
+`AGENTBUS_FILES_BUCKET`, default `agentbus-files`, the project's MinIO on Modal), so File -> Open
+shows those files next to local ones.
 
 The relay only lists repos it crawls: the PDS has to be up, deployed with the service-record
 validation, and have asked the relay to crawl it (`ROOKERY_RELAY_HOSTS` includes `bsky.network`).

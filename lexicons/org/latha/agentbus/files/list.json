@@ -1,0 +1,84 @@
+{
+  "lexicon": 1,
+  "id": "org.latha.agentbus.files.list",
+  "description": "The files a provider offers, for File -> Open. Bus function files.list. Providers may require an atproto inter-service JWT (aud = provider DID, lxm = this NSID).",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "properties": {
+          "path": {
+            "type": "string",
+            "maxLength": 1024,
+            "description": "Only files whose name starts with this prefix."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "provider",
+            "files"
+          ],
+          "properties": {
+            "provider": {
+              "type": "string",
+              "description": "Name File -> Open shows for this provider."
+            },
+            "files": {
+              "type": "array",
+              "maxLength": 1000,
+              "items": {
+                "type": "ref",
+                "ref": "#file"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired"
+        },
+        {
+          "name": "InvalidToken"
+        },
+        {
+          "name": "Forbidden"
+        }
+      ]
+    },
+    "file": {
+      "type": "object",
+      "required": [
+        "name",
+        "uri"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Path within the provider, e.g. plans/design.md."
+        },
+        "uri": {
+          "type": "string",
+          "format": "uri"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Bytes."
+        },
+        "mtime": {
+          "type": "integer",
+          "description": "Last modified, Unix seconds."
+        },
+        "mime": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

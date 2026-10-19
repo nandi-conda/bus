@@ -1,7 +1,7 @@
 """Own the hub: apps call functions and subscribe to topics through it.
 
 The hub also reaches procs that serve agentbus services over HTTPS: for each service in
-$AGENTBUS_SERVICES (comma-separated, default "weather") it asks the relay ($AGENTBUS_RELAY,
+$AGENTBUS_SERVICES (comma-separated, default "weather,files") it asks the relay ($AGENTBUS_RELAY,
 default https://bsky.network) who provides it and makes each provider callable here, so
 procs.call("weather.current", place="Berlin") reaches a proc on Modal like a local one.
 AGENTBUS_TRUST (comma-separated DIDs) limits whose procs are used. The hub has its own rookery
@@ -30,7 +30,7 @@ def env_list(name, default=""):
 hub = agentbus.Hub()
 print(f"hub: serving {agentbus.HUB_NAME}", flush=True)
 
-services = env_list("AGENTBUS_SERVICES", "weather")
+services = env_list("AGENTBUS_SERVICES", "weather,files")
 
 
 def follow_remote():
