@@ -105,9 +105,11 @@ class Procs:
     def withdraw(self, name):
         self._native.withdraw(name)
 
-    def call(self, name, timeout=None, **args):
-        """Call ``name`` through the hub. Raises NoProvider, TimeoutError or CallError."""
-        return self._native.call(name, args, timeout)
+    def call(self, name, timeout=None, provider=None, **args):
+        """Call ``name`` through the hub. With ``provider`` (a unique name from
+        ``providers(name)``) only that provider is asked. Raises NoProvider, TimeoutError or
+        CallError."""
+        return self._native.call(name, args, timeout, provider)
 
     def functions(self):
         return self._native.functions()

@@ -231,3 +231,40 @@ async fn providers_only_answer_the_hub() {
         .await;
     assert!(direct.is_err());
 }
+
+#[tokio::test]
+async fn call_one_named_provider() {
+    let hub_name = "dev.agentbus.test.FunctionsProvider";
+    let _hub = hub::serve_with_pins(hub_name, HashMap::new())
+        .await
+        .unwrap();
+    let app = Connection::session().await.unwrap();
+    let cold = weather(hub_name, 3.0).await;
+    let warm = weather(hub_name, 21.0).await;
+    let args = json!({"place": "Berlin"});
+
+    // Fan out: every provider answers for itself, with no failover between them.
+    for (procs, temp) in [(&cold, 3.0), (&warm, 21.0)] {
+        let owner = procs.connection().unique_name().unwrap().to_string();
+        let r =
+            functions::call_provider(&app, hub_name, "weather.current", Some(&owner), &args, None)
+                .await
+                .unwrap();
+        assert_eq!(r["temp_c"], temp);
+    }
+
+    let app_name = app.unique_name().unwrap().to_string();
+    let err = functions::call_provider(
+        &app,
+        hub_name,
+        "weather.current",
+        Some(&app_name),
+        &args,
+        None,
+    )
+    .await;
+    assert_eq!(
+        code(err.unwrap_err()),
+        "org.freedesktop.DBus.Error.ServiceUnknown"
+    );
+}

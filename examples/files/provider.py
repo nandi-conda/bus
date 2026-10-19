@@ -1,53 +1,64 @@
-"""A file provider: answers every GetFiles broadcast with a SendFiles broadcast.
+"""A file proc: provides files.list on the hub.
 
-    python provider.py dir NAME PATH     list the files under PATH
-    python provider.py bot NAME          a bot proc offering files it wrote, a little later
+    python provider.py dir NAME PATH     the files under PATH
+    python provider.py bot NAME          files a bot wrote, answered a little later
 """
 
+import mimetypes
 import os
 import sys
-import threading
+import time
 
 import agentbus
 
-from common import IFACE, PATH
+from common import FUNCTION, SCHEMA
 
 BOT_FILES = [
-    "drafts/release-notes-0.2.md",
-    "plans/kv-store-design.md",
-    "reports/test-failures-2026-10-18.txt",
+    ("drafts/release-notes-0.2.md", 2140),
+    ("plans/kv-store-design.md", 5310),
+    ("reports/test-failures-2026-10-18.txt", 880),
 ]
 
 
+def entry(name, uri, size, mtime):
+    return {"name": name, "uri": uri, "size": size, "mtime": mtime,
+            "mime": mimetypes.guess_type(name)[0] or "application/octet-stream"}
+
+
 def walk(root):
-    out = []
+    root = os.path.abspath(root)
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = sorted(d for d in dirnames if not d.startswith("."))
-        out += [os.path.relpath(os.path.join(dirpath, f), root) for f in sorted(filenames)]
-    return out
+        dirnames[:] = sorted(d for d in dirnames if not d.startswith(".") and d != "__pycache__")
+        for f in sorted(filenames):
+            full = os.path.join(dirpath, f)
+            st = os.stat(full)
+            yield entry(os.path.relpath(full, root), "file://" + full, st.st_size, int(st.st_mtime))
 
 
-def serve(name, list_files, delay=0.0):
-    bus = agentbus.Signals()
-    requests = bus.listen(PATH, IFACE, "GetFiles")
-    print(f"{name}: listening for GetFiles", flush=True)
-
-    def send(request):
-        files = list_files()
-        bus.broadcast(PATH, IFACE, "SendFiles", request, name, files)
-        print(f"{name}: sent {len(files)} files for {request}", flush=True)
-
-    for signal in requests:
-        threading.Timer(delay, send, args=(signal["args"][0],)).start()
+def bot_files(name):
+    now = int(time.time())
+    time.sleep(0.8)
+    return [entry(f, f"bot://{name}/{f}", size, now) for f, size in BOT_FILES]
 
 
 def main():
     if len(sys.argv) >= 4 and sys.argv[1] == "dir":
-        serve(sys.argv[2], lambda: walk(sys.argv[3]))
+        label, list_files = sys.argv[2], lambda: list(walk(sys.argv[3]))
     elif len(sys.argv) >= 3 and sys.argv[1] == "bot":
-        serve(sys.argv[2], lambda: list(BOT_FILES), delay=0.8)
+        label, list_files = sys.argv[2], lambda: bot_files(sys.argv[2])
     else:
         sys.exit(__doc__)
+
+    procs = agentbus.Procs()
+
+    @procs.function(FUNCTION, SCHEMA)
+    def files_list(path=""):
+        files = [f for f in list_files() if f["name"].startswith(path)]
+        print(f"{label}: sent {len(files)} files", flush=True)
+        return {"provider": label, "files": files}
+
+    print(f"{label}: providing {FUNCTION}", flush=True)
+    procs.run_forever()
 
 
 if __name__ == "__main__":

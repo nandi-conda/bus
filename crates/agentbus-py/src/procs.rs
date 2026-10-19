@@ -115,13 +115,14 @@ impl Procs {
     }
 
     /// Call function `name` with an args dict. Raises NoProvider, TimeoutError or CallError.
-    #[pyo3(signature = (name, args=None, timeout=None))]
+    #[pyo3(signature = (name, args=None, timeout=None, provider=None))]
     fn call(
         &self,
         py: Python<'_>,
         name: &str,
         args: Option<&Bound<'_, PyDict>>,
         timeout: Option<f64>,
+        provider: Option<&str>,
     ) -> PyResult<Py<PyAny>> {
         let args = match args {
             Some(a) => to_json(py, a.as_any())?,
@@ -131,7 +132,7 @@ impl Procs {
         let conn = self.procs.connection();
         let result = block(
             py,
-            functions::call(conn, self.procs.hub(), name, &args, timeout),
+            functions::call_provider(conn, self.procs.hub(), name, provider, &args, timeout),
         )?
         .map_err(bus_err)?;
         to_py(py, &result)

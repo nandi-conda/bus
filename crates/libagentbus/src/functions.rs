@@ -258,12 +258,22 @@ impl HubObject {
     ) -> zbus::fdo::Result<Dict> {
         let caller = sender(&header)?;
         let args = dict_to_json(&args)?;
-        let timeout = call_timeout(&dict_to_json(&options)?)?;
+        let (timeout, only) = call_options(&dict_to_json(&options)?)?;
         let deadline = Instant::now() + timeout;
         let canceled = Arc::new(AtomicBool::new(false));
 
         let mut last_error = None;
-        for provider in self.candidates(conn, &name).await? {
+        let candidates = match only {
+            // A caller fanning out to every provider names one; no failover to the others.
+            Some(p) if lock(&self.state).entry(&name, &p).is_some() => vec![p],
+            Some(p) => {
+                return Err(zbus::fdo::Error::ServiceUnknown(format!(
+                    "{p} does not provide {name}"
+                )));
+            }
+            None => self.candidates(conn, &name).await?,
+        };
+        for provider in candidates {
             if canceled.load(Ordering::Relaxed) {
                 return Err(zbus::fdo::Error::Failed("the caller left the bus".into()));
             }
@@ -439,23 +449,37 @@ impl HubObject {
     }
 }
 
-fn call_timeout(options: &Json) -> zbus::fdo::Result<Duration> {
+/// The `timeout` and `provider` call options.
+fn call_options(options: &Json) -> zbus::fdo::Result<(Duration, Option<String>)> {
     let map = options.as_object().expect("dict_to_json gives an object");
-    if let Some(k) = map.keys().find(|k| k.as_str() != "timeout") {
+    if let Some(k) = map
+        .keys()
+        .find(|k| !["timeout", "provider"].contains(&k.as_str()))
+    {
         return Err(zbus::fdo::Error::InvalidArgs(format!(
             "unknown call option {k:?}"
         )));
     }
-    match map.get("timeout") {
-        None => Ok(DEFAULT_TIMEOUT),
+    let timeout = match map.get("timeout") {
+        None => DEFAULT_TIMEOUT,
         Some(t) => t
             .as_f64()
             .filter(|t| *t > 0.0 && t.is_finite())
             .map(Duration::from_secs_f64)
             .ok_or_else(|| {
                 zbus::fdo::Error::InvalidArgs("timeout must be a positive number of seconds".into())
-            }),
-    }
+            })?,
+    };
+    let provider = match map.get("provider") {
+        None => None,
+        Some(Json::String(p)) => Some(p.clone()),
+        Some(_) => {
+            return Err(zbus::fdo::Error::InvalidArgs(
+                "provider must be a unique bus name".into(),
+            ));
+        }
+    };
+    Ok((timeout, provider))
 }
 
 async fn invoke(
@@ -773,10 +797,26 @@ pub async fn call(
     args: &Json,
     timeout: Option<Duration>,
 ) -> Result<Json> {
-    let options = match timeout {
-        Some(t) => json!({"timeout": t.as_secs_f64()}),
-        None => json!({}),
-    };
+    call_provider(conn, hub, name, None, args, timeout).await
+}
+
+/// Like [`call`], but with `provider` (a unique name from [`providers`]) only that provider
+/// is tried. Apps use it to ask every provider of `name`, not just the best one.
+pub async fn call_provider(
+    conn: &Connection,
+    hub: &str,
+    name: &str,
+    provider: Option<&str>,
+    args: &Json,
+    timeout: Option<Duration>,
+) -> Result<Json> {
+    let mut options = json!({});
+    if let Some(t) = timeout {
+        options["timeout"] = json!(t.as_secs_f64());
+    }
+    if let Some(p) = provider {
+        options["provider"] = json!(p);
+    }
     let reply = conn
         .call_method(
             Some(hub),

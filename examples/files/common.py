@@ -1,9 +1,17 @@
 """Shared names for the File -> Open example.
 
-The GUI broadcasts GetFiles(s request) on the session bus; every provider that hears it
-broadcasts SendFiles(s request, s provider, as files) back. Nobody needs to know who else
-is on the bus: the GUI lists whatever arrives for its request id.
+A file proc provides the function ``files.list`` on the hub. Args: optional ``path`` (a prefix
+to filter on). Result: ``{"provider": label, "files": [{name, uri, size, mtime, mime}]}``.
+File -> Open asks every provider of it, local procs and #bots procs the bridge imported alike,
+and lists each answer as it arrives.
 """
 
-PATH = "/org/example/Files"
-IFACE = "org.example.Files1"
+FUNCTION = "files.list"
+SCHEMA = """{
+  "args": {"type": "object", "properties": {"path": {"type": "string"}},
+           "additionalProperties": false},
+  "result": {"type": "object", "required": ["provider", "files"],
+             "properties": {"provider": {"type": "string"},
+                            "files": {"type": "array", "items": {
+                              "type": "object", "required": ["name", "uri"]}}}}
+}"""

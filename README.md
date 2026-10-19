@@ -13,7 +13,7 @@ Everything is Python except the core library the bindings wrap.
 | Rust core: `hub`, `functions`, `topics`, `signals` | `crates/libagentbus` |
 | PyO3 bindings (`agentbus._native`) and the `agentbus` package (`Procs`, decorators) | `crates/agentbus-py` |
 | Example procs and apps: `hub.py`, `weather.py`, `app.py`, `ui.py`, `watch.py`, `procs_demo.py` | `examples/` |
-| File → Open GUI on broadcast signals | `examples/files/` |
+| File → Open GUI fanning out to every `files.list` proc | `examples/files/` |
 
 ## Python
 
@@ -61,9 +61,13 @@ The hub owns `dev.agentbus.Hub`:
 
 Broadcast signals need no hub: `agentbus.Signals().broadcast(path, iface, member, *args)` and
 `.listen(path, iface, member)`, with arguments typed the way D-Bus apps expect (str `s`, int `x`,
-float `d`, list of str `as`, dict `a{sv}`). `examples/files/` uses them for File → Open:
-the GUI broadcasts `org.example.Files1.GetFiles(s request)` and lists every provider's
-`SendFiles(s request, s provider, as files)` reply.
+float `d`, list of str `as`, dict `a{sv}`).
+
+A `Call` option `provider` (a unique name from `Providers`) asks just that provider, with no
+failover, so an app can fan out to every provider of a function. `examples/files/` does this for
+File → Open: file procs provide `files.list` (args: optional `path` prefix; result:
+`{provider, files: [{name, uri, size, mtime, mime}]}`) and the dialog calls each provider on its
+own thread, listing every answer as it arrives.
 
 ## Public procs
 
@@ -89,7 +93,7 @@ To try it without a deployed rookery, run one locally from rookery-pds with `wra
 ```sh
 pixi run test                # Rust + Python tests on a private bus (dbus-run-session)
 pixi run demo                # hub + weather proc + an app calling and following weather
-pixi run -e gui files-demo   # File -> Open GUI with a directory provider and a bot provider
+pixi run -e gui files-demo   # hub + a directory proc + a bot proc + the File -> Open GUI
 pixi run develop             # build the Python package into the pixi env
 ```
 

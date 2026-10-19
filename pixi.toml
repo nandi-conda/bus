@@ -31,7 +31,7 @@ test = { depends-on = ["test-rust", "test-py"] }
 pyside6 = ">=6.7"
 
 [feature.gui.tasks]
-# File -> Open GUI: broadcasts GetFiles, lists every provider's SendFiles reply.
+# File -> Open GUI: asks every files.list provider on the hub and lists the answers.
 files-demo = { cmd = "dbus-run-session -- python examples/files/demo.py", depends-on = ["develop"] }
 
 [environments]

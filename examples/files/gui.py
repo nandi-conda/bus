@@ -1,35 +1,46 @@
-"""File -> Open: broadcast GetFiles on the bus and list every SendFiles reply as it arrives."""
+"""File -> Open: ask every files.list provider on the hub and list each answer as it arrives."""
 
 import sys
-import uuid
+import threading
 
 import agentbus
-from PySide6.QtCore import QObject, Signal, Slot
+from PySide6.QtCore import QObject, Qt, Signal, Slot
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QApplication, QDialog, QDialogButtonBox, QLabel, QMainWindow,
                                QPlainTextEdit, QTreeWidget, QTreeWidgetItem, QVBoxLayout)
 
-from common import IFACE, PATH
+from common import FUNCTION
 
 
 class Replies(QObject):
-    """Carries SendFiles replies from the bus thread to the GUI thread."""
+    """Carries answers from the calling threads to the GUI thread."""
 
-    arrived = Signal(list)
+    arrived = Signal(dict)
+    failed = Signal(str)
+
+
+def human_size(n):
+    if n is None:
+        return ""
+    for unit in ("B", "KB", "MB"):
+        if n < 1024:
+            return f"{n:.0f} {unit}"
+        n /= 1024
+    return f"{n:.1f} GB"
 
 
 class OpenDialog(QDialog):
-    """Lists files from whichever providers answer this dialog's request."""
+    """Lists the files every files.list provider answers with."""
 
     def __init__(self, parent):
         super().__init__(parent)
         self.setWindowTitle("Open File")
-        self.resize(560, 380)
-        self.request = uuid.uuid4().hex
+        self.resize(620, 400)
         self.status = QLabel("Asking the bus for files…")
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(["File", "Provider"])
-        self.tree.setColumnWidth(0, 360)
+        self.tree.setHeaderLabels(["File", "Provider", "Size"])
+        self.tree.setColumnWidth(0, 330)
+        self.tree.setColumnWidth(1, 130)
         self.tree.itemDoubleClicked.connect(self.accept)
         buttons = QDialogButtonBox(QDialogButtonBox.Open | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
@@ -38,33 +49,47 @@ class OpenDialog(QDialog):
         for w in (self.status, self.tree, buttons):
             layout.addWidget(w)
 
-        # Listen before asking, so no reply is missed; replies hop to the GUI thread via Qt.
         self.replies = Replies()
-        self.replies.arrived.connect(self.on_send_files)
-        self.bus = agentbus.Signals()
-        self.stop_listening = agentbus.on_signal(
-            self.bus, PATH, IFACE, "SendFiles", lambda s: self.replies.arrived.emit(s["args"])
-        )
-        self.bus.broadcast(PATH, IFACE, "GetFiles", self.request)
+        self.replies.arrived.connect(self.on_files)
+        self.replies.failed.connect(self.on_failed)
+        self.procs = parent.procs
+        providers = [owner for owner, _ in self.procs.providers(FUNCTION)]
+        if not providers:
+            self.status.setText(f"Nobody on the bus provides {FUNCTION}")
+        self.waiting = len(providers)
+        for owner in providers:
+            threading.Thread(target=self.ask, args=(owner,), daemon=True).start()
 
-    @Slot(list)
-    def on_send_files(self, args):
-        request, provider, files = args
-        if request != self.request:
-            return
-        for f in files:
-            item = QTreeWidgetItem([f, provider])
+    def ask(self, owner):
+        """One call per provider, so a slow #bots proc never holds up the local disk."""
+        try:
+            self.replies.arrived.emit(self.procs.call(FUNCTION, timeout=10, provider=owner))
+        except (agentbus.CallError, agentbus.NoProvider, TimeoutError) as e:
+            self.replies.failed.emit(f"{owner}: {e}")
+
+    @Slot(dict)
+    def on_files(self, answer):
+        for f in answer["files"]:
+            item = QTreeWidgetItem([f["name"], answer["provider"], human_size(f.get("size"))])
+            item.setToolTip(0, f["uri"])
+            item.setData(0, Qt.UserRole, f["uri"])
             self.tree.addTopLevelItem(item)
-        providers = {self.tree.topLevelItem(i).text(1) for i in range(self.tree.topLevelItemCount())}
-        self.status.setText(f"{self.tree.topLevelItemCount()} files from {len(providers)} providers")
+        self.answered()
 
-    def done(self, result):
-        self.stop_listening()
-        super().done(result)
+    @Slot(str)
+    def on_failed(self, message):
+        print(f"files.list failed: {message}", file=sys.stderr, flush=True)
+        self.answered()
+
+    def answered(self):
+        self.waiting -= 1
+        providers = {self.tree.topLevelItem(i).text(1) for i in range(self.tree.topLevelItemCount())}
+        more = f", waiting on {self.waiting}" if self.waiting else ""
+        self.status.setText(f"{self.tree.topLevelItemCount()} files from {len(providers)} providers{more}")
 
     def selected(self):
         item = self.tree.currentItem()
-        return (item.text(1), item.text(0)) if item else None
+        return (item.text(1), item.data(0, Qt.UserRole)) if item else None
 
 
 class MainWindow(QMainWindow):
@@ -72,6 +97,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Bus Editor")
         self.resize(720, 480)
+        self.procs = agentbus.Procs()
         self.editor = QPlainTextEdit()
         self.editor.setPlaceholderText("File → Open lists files from everyone on the bus.")
         self.setCentralWidget(self.editor)
@@ -84,8 +110,8 @@ class MainWindow(QMainWindow):
     def open_file(self):
         dialog = OpenDialog(self)
         if dialog.exec() and (choice := dialog.selected()):
-            provider, path = choice
-            self.statusBar().showMessage(f"Chose {path} from {provider}")
+            provider, uri = choice
+            self.statusBar().showMessage(f"Chose {uri} from {provider}")
 
 
 def main():
