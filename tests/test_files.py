@@ -58,7 +58,7 @@ class FilesTest(unittest.TestCase):
             local = owners["local:files"]
             src = app.call("files.read", provider=local, file="provider.py")
             self.assertEqual(src["encoding"], "utf-8")
-            self.assertIn("files.read", src["content"])
+            self.assertIn("def files_read", src["content"])
             self.assertEqual(src["size"], len(src["content"].encode()))
             note = app.call("files.read", provider=owners["bot:notes"], file="plans/kv-store-design.md")
             self.assertTrue(note["content"].startswith("# KV store"))
