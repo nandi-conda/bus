@@ -5,9 +5,11 @@ build-backend = "maturin"
 [project]
 name = "agentbus"
 version = "0.1.0"
-description = "Python bindings for libagentbus: submit and serve tasks over D-Bus"
+description = "Networked procs on D-Bus: functions, topics and broadcast signals"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 
 [tool.maturin]
+python-source = "python"
+module-name = "agentbus._native"
 features = ["pyo3/extension-module"]

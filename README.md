@@ -1,76 +1,81 @@
 # bus
 
-`libagentbus` puts **tasks** on D-Bus: a caller submits a piece of work to an agent or a
-capability slot and follows it through progress, questions and a final deliverable. The design
-lives in the project's `agent-bus/` docs (`DESIGN.md`, `TASKS.md`); this is milestone M1 plus the
-slot router.
+`libagentbus` puts **networked procs** on D-Bus. A proc is an ordinary process (a weather API
+wrapper, a calendar sync, a build runner) that hosts **functions** such as `weather.current` and
+publishes **topics** such as `weather.alert` for `Berlin`. Apps call a function or subscribe to a
+topic by name through the hub, never naming the proc. The design is
+`agent-bus/PROCS.md` in the project files.
+
+Everything is Python except the core library the bindings wrap.
 
 | Part | Where |
 |---|---|
-| Rust core (`agentbus` crate: `Agent`, `submit`, `TaskContext`, `router`) | `crates/libagentbus` |
-| Python bindings (PyO3, built with maturin) | `crates/agentbus-py` |
-| App-domain topics (`agentbus::topics`, Python `agentbus.Topics` / `TopicsHub`) | `crates/libagentbus/src/topics.rs`, `crates/agentbus-py/src/topics.rs` |
-| Python topic examples: `topics_hub.py`, `weather_source.py`, `watch.py` | `examples/` |
-| Python task examples: `greeter.py`, `router.py`, `agent.py`, `sender.py`, `demo.py` | `examples/` |
+| Rust core: `hub`, `functions`, `topics`, `signals` | `crates/libagentbus` |
+| PyO3 bindings (`agentbus._native`) and the `agentbus` package (`Procs`, decorators) | `crates/agentbus-py` |
+| Example procs and apps: `hub.py`, `weather.py`, `app.py`, `ui.py`, `watch.py`, `procs_demo.py` | `examples/` |
+| File → Open GUI on broadcast signals | `examples/files/` |
 
-## D-Bus surface
-
-- `org.agentbus.Agent1` at `/org/agentbus/Agent`: `Submit(a{sv} spec) -> o task`, properties
-  `TaskClasses`, `Load`, `Status`. Tasks are children of an `ObjectManager` at the same path.
-- `org.agentbus.Task1` at `/org/agentbus/Agent/task/<n>`: properties `State`, `Class`, `Goal`,
-  `Owner`; methods `Cancel(s)`, `Respond(s id, a{sv} answer)`, `Result() -> (a{sv}, a{sv})`;
-  signals `Progress(d, s)`, `Question(s id, s text, s schema)`, `Log(s, s)`, `Finished(s)`.
-- `org.agentbus.Router1` on a slot such as `org.agentbus.cap.Plan1`: `Register()` adds the
-  caller; each task submitted to the slot goes round-robin to a live member, and the router's own
-  task mirrors the member's signals and relays answers and cancels.
-
-- `dev.agentbus.Topics1` on `dev.agentbus.Topics` at `/dev/agentbus/Topics`: app-domain
-  subscriptions, independent of agents and tasks. `Subscribe(s pattern, s subject) -> o`
-  (pattern `weather.current`, `weather.*` or `*`; subject `Berlin`, or `""` for any) creates a
-  `dev.agentbus.Subscription1` object whose `Event(s topic, s subject, a{sv} payload, t seq)`
-  signals go to the subscriber only, starting with the retained current values. `Publish(s topic,
-  s subject, a{sv} payload) -> u` fans out and retains. `Demand() -> a(ssu)` and the
-  `DemandChanged(s, s, u)` signal let a publisher produce only what someone watches.
-  Subscriptions end on `Unsubscribe()` or when the subscriber leaves the bus.
-
-States follow A2A: `submitted`, `working`, `input-required`, `completed`, `failed`,
-`rejected`, `canceled`.
-
-## Use it
-
-```sh
-pixi run test           # Rust + Python tests on a private bus (dbus-run-session)
-pixi run demo           # router + agent + sender, all Python
-pixi run topics-demo    # topics hub + weather source + an app watching Berlin
-pixi run develop        # build the Python module into the pixi env
-```
+## Python
 
 ```python
 import agentbus
 
-task = agentbus.Client().submit("org.agentbus.cap.Plan1", "dev.agentbus.task.plan", "build a kv store")
-for event in task:
-    if event["type"] == "question":
-        task.respond(event["id"], {"language": "python"})
-print(task.result())
+procs = agentbus.Procs()
 
-topics = agentbus.Topics()                       # app-domain subscriptions
-for event in topics.subscribe("weather.*", "Berlin"):
-    print(event["topic"], event["payload"])
+@procs.function("weather.current")
+def current(place):
+    return {"temp_c": 11.5, "condition": "cloudy"}
+
+@procs.publisher("weather.*")      # runs on its own thread while anyone watches a place
+def feed(place, stop):
+    while not stop.wait(60):
+        procs.publish("weather.current", place, current(place))
+
+procs.run_forever()
 ```
 
-## File → Open example
+An app: `procs.call("weather.current", place="Berlin")`, `procs.subscribe("weather.*", "Berlin")`.
+Calls raise `agentbus.NoProvider`, `TimeoutError` or `agentbus.CallError`.
 
-`examples/files/` is an ordinary PySide6 app with no chat box: File → Open broadcasts
-`org.example.Files1.GetFiles(s request)` on the session bus, and every provider that hears it
-broadcasts `SendFiles(s request, s provider, as files)` back. The dialog lists whatever arrives,
-tagged by provider, so an agent shows up in the app's own Open dialog next to the local disk.
+## D-Bus surface
+
+The hub owns `dev.agentbus.Hub`:
+
+- `dev.agentbus.Functions1` at `/dev/agentbus/Functions`: `Provide(s name, s schema)`,
+  `Withdraw(s)`, `Call(s name, a{sv} args, a{sv} options) -> a{sv}`, `Providers(s) -> a(sa{sv})`,
+  `Functions() -> as`, signal `ProvidersChanged(s, u)`. `schema` is `""` or
+  `{"args": <JSON Schema>, "result": <JSON Schema>}`, enforced on every call. Routing: the
+  provider pinned in `functions.conf` (`function = bus.name` lines, at
+  `$AGENTBUS_FUNCTIONS_CONF` or `~/.config/agentbus/functions.conf`), then the others by failure
+  rate and latency, failing over on errors and malformed results. `options.timeout` defaults to
+  25 s. Registrations are leases on the provider's connection; if the caller leaves or the
+  deadline passes, the provider gets `Cancel`.
+- Providers serve `dev.agentbus.Provider1` at `/dev/agentbus/Provider`:
+  `Invoke(s name, a{sv} args, a{sv} meta) -> a{sv}` and `Cancel(s call_id)`, accepted only from
+  the hub.
+- `dev.agentbus.Topics1` at `/dev/agentbus/Topics`: `Subscribe(s pattern, s subject) -> o`
+  creates a `dev.agentbus.Subscription1` whose `Event(s topic, s subject, a{sv} payload, t seq)`
+  signals go to the subscriber only, starting with retained values. `Publish(s, s, a{sv}) -> u`
+  fans out and retains. `Demand() -> a(ssu)` and `DemandChanged(s, s, u)` let publishers produce
+  only what someone watches. Subscriptions end on `Unsubscribe()` or when the subscriber leaves.
+
+Broadcast signals need no hub: `agentbus.Signals().broadcast(path, iface, member, *args)` and
+`.listen(path, iface, member)`, with arguments typed the way D-Bus apps expect (str `s`, int `x`,
+float `d`, list of str `as`, dict `a{sv}`). `examples/files/` uses them for File → Open:
+the GUI broadcasts `org.example.Files1.GetFiles(s request)` and lists every provider's
+`SendFiles(s request, s provider, as files)` reply.
+
+## Use it
 
 ```sh
-pixi run -e gui files-demo   # a directory provider, an agent provider, and the GUI on a private bus
+pixi run test                # Rust + Python tests on a private bus (dbus-run-session)
+pixi run demo                # hub + weather proc + an app calling and following weather
+pixi run -e gui files-demo   # File -> Open GUI with a directory provider and a bot provider
+pixi run develop             # build the Python package into the pixi env
 ```
 
 ## Not yet
 
-Artifacts (fd passing), `Amend`, `Quote`/award, budgets and grants, and the SQLite journal from
-TASKS.md are not implemented.
+From PROCS.md: `Procs(public=True)` (rookery identity, `dev.agentbus.proc` record, freeq bot),
+the bridge, remote providers ranked after local ones, and typed front ends generated from
+lexicons.

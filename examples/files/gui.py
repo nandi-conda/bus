@@ -3,13 +3,19 @@
 import sys
 import uuid
 
-from PySide6.QtCore import Slot
-from PySide6.QtDBus import QDBusConnection, QDBusMessage
+import agentbus
+from PySide6.QtCore import QObject, Signal, Slot
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QApplication, QDialog, QDialogButtonBox, QLabel, QMainWindow,
                                QPlainTextEdit, QTreeWidget, QTreeWidgetItem, QVBoxLayout)
 
 from common import IFACE, PATH
+
+
+class Replies(QObject):
+    """Carries SendFiles replies from the bus thread to the GUI thread."""
+
+    arrived = Signal(list)
 
 
 class OpenDialog(QDialog):
@@ -32,18 +38,18 @@ class OpenDialog(QDialog):
         for w in (self.status, self.tree, buttons):
             layout.addWidget(w)
 
-        self.bus = QDBusConnection.sessionBus()
-        # The leading "1" is the SLOT() prefix Qt expects; PySide does not add it.
-        if not self.bus.connect("", PATH, IFACE, "SendFiles", self, "1on_send_files(QDBusMessage)"):
-            self.status.setText(f"Cannot subscribe to SendFiles: {self.bus.lastError().message()}")
-            return
-        get_files = QDBusMessage.createSignal(PATH, IFACE, "GetFiles")
-        get_files.setArguments([self.request])
-        self.bus.send(get_files)
+        # Listen before asking, so no reply is missed; replies hop to the GUI thread via Qt.
+        self.replies = Replies()
+        self.replies.arrived.connect(self.on_send_files)
+        self.bus = agentbus.Signals()
+        self.stop_listening = agentbus.on_signal(
+            self.bus, PATH, IFACE, "SendFiles", lambda s: self.replies.arrived.emit(s["args"])
+        )
+        self.bus.broadcast(PATH, IFACE, "GetFiles", self.request)
 
-    @Slot(QDBusMessage)
-    def on_send_files(self, msg):
-        request, provider, files = msg.arguments()
+    @Slot(list)
+    def on_send_files(self, args):
+        request, provider, files = args
         if request != self.request:
             return
         for f in files:
@@ -53,7 +59,7 @@ class OpenDialog(QDialog):
         self.status.setText(f"{self.tree.topLevelItemCount()} files from {len(providers)} providers")
 
     def done(self, result):
-        self.bus.disconnect("", PATH, IFACE, "SendFiles", self, "1on_send_files(QDBusMessage)")
+        self.stop_listening()
         super().done(result)
 
     def selected(self):

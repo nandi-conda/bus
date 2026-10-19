@@ -11,7 +11,7 @@ HUB = "dev.agentbus.test.PyTopics"
 class TopicsTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.hub = agentbus.TopicsHub(HUB)
+        cls.hub = agentbus.Hub(HUB)
         cls.publisher = agentbus.Topics(HUB)
 
     def test_retained_then_live_for_one_subject(self):

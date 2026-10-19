@@ -1,45 +1,22 @@
 """A file provider: answers every GetFiles broadcast with a SendFiles broadcast.
 
     python provider.py dir NAME PATH     list the files under PATH
-    python provider.py agent NAME        an agent offering files it wrote, after "thinking"
+    python provider.py bot NAME          a bot proc offering files it wrote, a little later
 """
 
 import os
 import sys
+import threading
 
-from PySide6.QtCore import QCoreApplication, QObject, QTimer, Slot
-from PySide6.QtDBus import QDBusConnection, QDBusMessage
+import agentbus
 
 from common import IFACE, PATH
 
-AGENT_FILES = [
+BOT_FILES = [
     "drafts/release-notes-0.2.md",
     "plans/kv-store-design.md",
     "reports/test-failures-2026-10-18.txt",
 ]
-
-
-class Provider(QObject):
-    def __init__(self, name, list_files, delay_ms=0):
-        super().__init__()
-        self.name, self.list_files, self.delay_ms = name, list_files, delay_ms
-        self.bus = QDBusConnection.sessionBus()
-        # The leading "1" is the SLOT() prefix Qt expects; PySide does not add it.
-        if not self.bus.connect("", PATH, IFACE, "GetFiles", self, "1on_get_files(QDBusMessage)"):
-            sys.exit(f"{name}: cannot subscribe to GetFiles: {self.bus.lastError().message()}")
-        print(f"{name}: listening for GetFiles", flush=True)
-
-    @Slot(QDBusMessage)
-    def on_get_files(self, msg):
-        request = msg.arguments()[0]
-        QTimer.singleShot(self.delay_ms, lambda: self.send(request))
-
-    def send(self, request):
-        files = self.list_files()
-        reply = QDBusMessage.createSignal(PATH, IFACE, "SendFiles")
-        reply.setArguments([request, self.name, files])
-        self.bus.send(reply)
-        print(f"{self.name}: sent {len(files)} files for {request}", flush=True)
 
 
 def walk(root):
@@ -50,16 +27,27 @@ def walk(root):
     return out
 
 
+def serve(name, list_files, delay=0.0):
+    bus = agentbus.Signals()
+    requests = bus.listen(PATH, IFACE, "GetFiles")
+    print(f"{name}: listening for GetFiles", flush=True)
+
+    def send(request):
+        files = list_files()
+        bus.broadcast(PATH, IFACE, "SendFiles", request, name, files)
+        print(f"{name}: sent {len(files)} files for {request}", flush=True)
+
+    for signal in requests:
+        threading.Timer(delay, send, args=(signal["args"][0],)).start()
+
+
 def main():
-    app = QCoreApplication(sys.argv)
-    kind, name = sys.argv[1], sys.argv[2]
-    if kind == "dir":
-        provider = Provider(name, lambda: walk(sys.argv[3]))
-    elif kind == "agent":
-        provider = Provider(name, lambda: list(AGENT_FILES), delay_ms=800)
+    if len(sys.argv) >= 4 and sys.argv[1] == "dir":
+        serve(sys.argv[2], lambda: walk(sys.argv[3]))
+    elif len(sys.argv) >= 3 and sys.argv[1] == "bot":
+        serve(sys.argv[2], lambda: list(BOT_FILES), delay=0.8)
     else:
         sys.exit(__doc__)
-    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

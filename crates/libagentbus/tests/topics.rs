@@ -4,6 +4,7 @@
 use std::time::Duration;
 
 use agentbus::{
+    hub,
     topics::{self, Demand},
     zbus::Connection,
 };
@@ -15,7 +16,7 @@ const WAIT: Duration = Duration::from_secs(5);
 #[tokio::test]
 async fn subscriber_gets_only_its_subject_and_retained_value_first() {
     let hub_name = "dev.agentbus.test.TopicsA";
-    let _hub = topics::serve(hub_name).await.unwrap();
+    let _hub = hub::serve(hub_name).await.unwrap();
     let publisher = Connection::session().await.unwrap();
     let app = Connection::session().await.unwrap();
 
@@ -68,7 +69,7 @@ async fn subscriber_gets_only_its_subject_and_retained_value_first() {
 #[tokio::test]
 async fn demand_follows_subscribers_and_their_lifetimes() {
     let hub_name = "dev.agentbus.test.TopicsB";
-    let _hub = topics::serve(hub_name).await.unwrap();
+    let _hub = hub::serve(hub_name).await.unwrap();
     let source = Connection::session().await.unwrap();
     let mut demand = topics::watch_demand(&source, hub_name).await.unwrap();
     assert!(demand.current.is_empty());
@@ -114,7 +115,7 @@ async fn demand_follows_subscribers_and_their_lifetimes() {
 #[tokio::test]
 async fn bad_topics_are_refused() {
     let hub_name = "dev.agentbus.test.TopicsC";
-    let _hub = topics::serve(hub_name).await.unwrap();
+    let _hub = hub::serve(hub_name).await.unwrap();
     let conn = Connection::session().await.unwrap();
     assert!(
         topics::subscribe(&conn, hub_name, "weather.", "")

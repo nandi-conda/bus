@@ -1,11 +1,12 @@
 //! Python glue for `agentbus::topics`: app-domain subscriptions on a hub.
 
-use std::time::Duration;
+use agentbus::{
+    hub::{self, HUB_NAME},
+    topics::{self, Demand, DemandWatch, Subscription, TopicEvent},
+};
+use pyo3::{prelude::*, types::PyDict};
 
-use agentbus::topics::{self, Demand, DemandWatch, Subscription, TOPICS_NAME, TopicEvent};
-use pyo3::{exceptions::PyTimeoutError, prelude::*, types::PyDict};
-
-use crate::{block, bus_err, to_json, to_py};
+use crate::{block, block_for, bus_err, session, to_json, to_py};
 
 fn event_to_py(py: Python<'_>, e: TopicEvent) -> PyResult<Py<PyAny>> {
     let d = PyDict::new(py);
@@ -24,41 +25,24 @@ fn demand_to_py(py: Python<'_>, d: Demand) -> PyResult<Py<PyAny>> {
     Ok(out.into_any().unbind())
 }
 
-/// Wait for `fut`, or raise TimeoutError after `timeout` seconds.
-fn block_for<F>(py: Python<'_>, timeout: Option<f64>, fut: F) -> PyResult<F::Output>
-where
-    F: Future + Send,
-    F::Output: Send,
-{
-    let out = block(py, async {
-        match timeout {
-            Some(t) => tokio::time::timeout(Duration::from_secs_f64(t), fut)
-                .await
-                .ok(),
-            None => Some(fut.await),
-        }
-    })?;
-    out.ok_or_else(|| PyTimeoutError::new_err("nothing arrived before the timeout"))
-}
-
-/// Serve the topics hub under `bus_name` until this object is dropped.
+/// Serve the hub (topics and functions) under `bus_name` until this object is dropped.
 #[pyclass(frozen)]
-pub struct TopicsHub {
-    _hub: topics::Hub,
+pub struct Hub {
+    _hub: hub::Hub,
 }
 
 #[pymethods]
-impl TopicsHub {
+impl Hub {
     #[new]
-    #[pyo3(signature = (bus_name=TOPICS_NAME))]
+    #[pyo3(signature = (bus_name=HUB_NAME))]
     fn new(py: Python<'_>, bus_name: &str) -> PyResult<Self> {
-        let hub = block(py, topics::serve(bus_name))?.map_err(bus_err)?;
-        Ok(TopicsHub { _hub: hub })
+        let hub = block(py, hub::serve(bus_name))?.map_err(bus_err)?;
+        Ok(Hub { _hub: hub })
     }
 
     /// Serve until interrupted (Ctrl-C raises KeyboardInterrupt).
     fn run_forever(&self, py: Python<'_>) -> PyResult<()> {
-        block(py, std::future::pending::<()>())
+        crate::run_forever(py)
     }
 }
 
@@ -69,17 +53,22 @@ pub struct Topics {
     hub: String,
 }
 
+impl Topics {
+    /// Topics over an existing connection, so a proc publishes under its own identity.
+    pub fn on(conn: agentbus::zbus::Connection, hub: &str) -> Self {
+        Topics {
+            conn,
+            hub: hub.to_string(),
+        }
+    }
+}
+
 #[pymethods]
 impl Topics {
     #[new]
-    #[pyo3(signature = (hub=TOPICS_NAME))]
+    #[pyo3(signature = (hub=HUB_NAME))]
     fn new(py: Python<'_>, hub: &str) -> PyResult<Self> {
-        let conn =
-            block(py, agentbus::zbus::Connection::session())?.map_err(|e| bus_err(e.into()))?;
-        Ok(Topics {
-            conn,
-            hub: hub.to_string(),
-        })
+        Ok(Topics::on(session(py)?, hub))
     }
 
     /// Subscribe to `pattern` ("weather.current", "weather.*" or "*") for `subject` ("" = any).
@@ -146,7 +135,7 @@ impl PySubscription {
         let event = block_for(py, timeout, async {
             match self.sub.lock().await.as_mut() {
                 Some(sub) => sub.next_event().await,
-                None => Err(agentbus::Error::Task("unsubscribed".into())),
+                None => Err(agentbus::Error::Closed("unsubscribed".into())),
             }
         })?
         .map_err(bus_err)?;

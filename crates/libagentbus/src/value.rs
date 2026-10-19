@@ -36,7 +36,7 @@ fn owned(v: Variant<'static>) -> Result<OwnedVariant> {
     OwnedVariant::try_from(v).map_err(|e| Error::Value(e.to_string()))
 }
 
-fn to_variant(json: &Json) -> Result<Variant<'static>> {
+pub(crate) fn to_variant(json: &Json) -> Result<Variant<'static>> {
     Ok(match json {
         Json::Null => return Err(Error::Value("null has no D-Bus representation".into())),
         Json::Bool(b) => Variant::from(*b),
@@ -65,7 +65,7 @@ fn to_variant(json: &Json) -> Result<Variant<'static>> {
     })
 }
 
-fn to_json(v: &Variant<'_>) -> Result<Json> {
+pub(crate) fn to_json(v: &Variant<'_>) -> Result<Json> {
     Ok(match v {
         Variant::U8(x) => Json::from(*x),
         Variant::Bool(x) => Json::from(*x),

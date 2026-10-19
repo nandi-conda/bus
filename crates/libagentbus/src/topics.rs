@@ -1,7 +1,7 @@
 //! App-domain subscriptions: apps subscribe to topics such as `weather.current` for a subject such
-//! as `Berlin`, and whatever service or agent publishes that topic feeds them through a hub.
+//! as `Berlin`, and whatever proc publishes that topic feeds them through a hub.
 //!
-//! The hub owns `dev.agentbus.Topics` and serves `dev.agentbus.Topics1` at [`TOPICS_PATH`]:
+//! The hub (see [`crate::hub`]) serves `dev.agentbus.Topics1` at [`TOPICS_PATH`]:
 //! - `Subscribe(s pattern, s subject) -> o` creates a `dev.agentbus.Subscription1` object owned by
 //!   the caller. Its `Event(s topic, s subject, a{sv} payload, t seq)` signals go to the caller
 //!   only. Retained values matching the subscription are replayed straight away. The subscription
@@ -23,7 +23,7 @@ use std::{
 use futures_util::StreamExt;
 use serde_json::Value as Json;
 use zbus::{
-    Connection, MatchRule, MessageStream, OwnedObjectPath, connection,
+    Connection, MatchRule, MessageStream, OwnedObjectPath,
     fdo::DBusProxy,
     interface,
     message::{self, Header},
@@ -32,7 +32,6 @@ use zbus::{
 
 use crate::{Dict, Error, Result, dict_to_json, json_to_dict};
 
-pub const TOPICS_NAME: &str = "dev.agentbus.Topics";
 pub const TOPICS_PATH: &str = "/dev/agentbus/Topics";
 pub const TOPICS_IFACE: &str = "dev.agentbus.Topics1";
 pub const SUBSCRIPTION_IFACE: &str = "dev.agentbus.Subscription1";
@@ -57,7 +56,7 @@ fn check_pattern(pattern: &str) -> zbus::fdo::Result<()> {
     check_topic(body)
 }
 
-fn check_topic(topic: &str) -> zbus::fdo::Result<()> {
+pub(crate) fn check_topic(topic: &str) -> zbus::fdo::Result<()> {
     let ok = !topic.is_empty()
         && topic.split('.').all(|part| {
             !part.is_empty()
@@ -82,7 +81,7 @@ struct Sub {
 }
 
 #[derive(Default)]
-struct HubState {
+pub(crate) struct HubState {
     next_sub: u64,
     seq: u64,
     subs: HashMap<u64, Sub>,
@@ -99,13 +98,13 @@ impl HubState {
     }
 }
 
-type State = Arc<Mutex<HubState>>;
+pub(crate) type State = Arc<Mutex<HubState>>;
 
 fn lock(state: &State) -> std::sync::MutexGuard<'_, HubState> {
     state.lock().expect("topics state lock poisoned")
 }
 
-struct HubObject {
+pub(crate) struct HubObject {
     state: State,
 }
 
@@ -352,50 +351,20 @@ async fn remove_subs(
     Ok(())
 }
 
-/// A running topics hub. Dropping it closes its connection.
-pub struct Hub {
-    conn: Connection,
-}
-
-impl Hub {
-    pub fn connection(&self) -> &Connection {
-        &self.conn
-    }
-}
-
-/// Take `bus_name` (normally [`TOPICS_NAME`]) on the session bus and serve the hub.
-pub async fn serve(bus_name: &str) -> Result<Hub> {
+/// The topics half of the hub, ready to serve at [`TOPICS_PATH`].
+pub(crate) fn hub_object() -> (HubObject, State) {
     let state: State = Default::default();
-    let conn = connection::Builder::session()
-        .name(bus_name)
-        .serve_at(
-            TOPICS_PATH,
-            HubObject {
-                state: state.clone(),
-            },
-        )
-        .build()
-        .await?;
+    (
+        HubObject {
+            state: state.clone(),
+        },
+        state,
+    )
+}
 
-    // Subscriptions are leases: when a subscriber leaves the bus, its subscriptions go too.
-    let mut gone = DBusProxy::new(&conn)
-        .await?
-        .receive_name_owner_changed()
-        .await?;
-    let watcher = conn.clone();
-    tokio::spawn(async move {
-        while let Some(signal) = gone.next().await {
-            let Ok(args) = signal.args() else { continue };
-            if args.new_owner().is_some() || !args.name().starts_with(':') {
-                continue;
-            }
-            let name = args.name().to_string();
-            if let Err(e) = remove_subs(&watcher, &state, |_, s| s.owner == name).await {
-                eprintln!("agentbus topics: could not drop subscriptions of {name}: {e}");
-            }
-        }
-    });
-    Ok(Hub { conn })
+/// Subscriptions are leases: drop every subscription `name` owns once it leaves the bus.
+pub(crate) async fn drop_owner(conn: &Connection, state: &State, name: &str) -> zbus::Result<()> {
+    remove_subs(conn, state, |_, s| s.owner == name).await
 }
 
 /// One event delivered to a subscriber.
@@ -416,7 +385,7 @@ pub struct Subscription {
     stream: MessageStream,
 }
 
-async fn owner_of(conn: &Connection, hub: &str) -> Result<String> {
+pub(crate) async fn owner_of(conn: &Connection, hub: &str) -> Result<String> {
     Ok(DBusProxy::new(conn)
         .await?
         .get_name_owner(BusName::try_from(hub)?)
@@ -467,7 +436,7 @@ impl Subscription {
     pub async fn next_event(&mut self) -> Result<TopicEvent> {
         loop {
             let Some(msg) = self.stream.next().await else {
-                return Err(Error::Task("bus connection closed".into()));
+                return Err(Error::Closed("bus connection closed".into()));
             };
             let msg = msg?;
             let header = msg.header();
@@ -575,7 +544,7 @@ pub async fn watch_demand(conn: &Connection, hub: &str) -> Result<DemandWatch> {
 impl DemandWatch {
     pub async fn next_change(&mut self) -> Result<Demand> {
         let Some(msg) = self.stream.next().await else {
-            return Err(Error::Task("bus connection closed".into()));
+            return Err(Error::Closed("bus connection closed".into()));
         };
         let (pattern, subject, subscribers): (String, String, u32) = msg?.body().deserialize()?;
         Ok(Demand {
