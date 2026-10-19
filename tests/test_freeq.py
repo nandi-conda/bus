@@ -48,6 +48,39 @@ class WireTest(unittest.TestCase):
             shutil.rmtree(root)
 
 
+class BridgeOfflineTest(unittest.TestCase):
+    """The bridge's bookkeeping with freeq faked out: announcements, calls, renames and leaving."""
+
+    def test_announce_call_rename_leave(self):
+        hub = agentbus.Hub(HUB + "Offline")  # noqa: F841 (serves while referenced)
+        app = agentbus.Procs(HUB + "Offline")
+        bridge = Bridge(HUB + "Offline")
+        sent = []
+
+        def tagmsg(target, tags):
+            sent.append(target)
+            if "+agentbus/call" in tags:  # the remote proc answers at once
+                bridge._on_message({"+agentbus/reply": tags["+agentbus/call"],
+                                    "+agentbus/result": '{"from": "%s"}' % target},
+                                   target, "TAGMSG", [bridge.bot.nick])
+
+        bridge.bot.tagmsg = tagmsg
+        bridge.mirror.start()
+        try:
+            bridge._on_message({"account": "did:key:zA", "+agentbus/provides": "weather.current"},
+                               "wx", "TAGMSG", ["#bots"])
+            bridge.wait_synced()
+            self.assertEqual(bridge.providers("weather.current"), [("wx", "did:key:zA")])
+            self.assertEqual(app.call("weather.current", place="Oslo"), {"from": "wx"})
+            bridge._on_message({}, "wx", "NICK", ["wx2"])
+            self.assertEqual(app.call("weather.current", place="Oslo"), {"from": "wx2"})
+            bridge._on_message({}, "wx2", "QUIT", ["bye"])
+            bridge.wait_synced()
+            self.assertNotIn("weather.current", app.functions())
+        finally:
+            bridge.mirror.stop()
+
+
 REMOTE_PROC = f"""
 import agentbus, sys
 hub = agentbus.Hub({HUB!r})

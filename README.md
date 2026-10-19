@@ -131,6 +131,32 @@ Open dialog tagged `#bots/NICK`). `bridge.owners()` maps those unique names to e
 `tests/test_freeq.py` runs a bridge and two procs on separate buses against a freeq server named
 by `AGENTBUS_FREEQ_TEST_SERVER` (e.g. a local `freeq-server` at `irc://127.0.0.1:6889`).
 
+## Over HTTPS: services found through the relay
+
+A proc can also serve its functions as atproto XRPC over HTTPS (`agentbus/xrpc.py`), e.g. on
+Modal. Bus function `weather.current` is method `org.latha.agentbus.weather.current` of service
+`org.latha.agentbus.weather` (the NSID minus its last segment); lexicons are in `lexicons/`. The proc
+writes one provider record in its rookery repo, collection `org.latha.agentbus.weather`, rkey `self`:
+`{endpoint, methods, createdAt}` (rookery validates it).
+
+`examples/relay_bridge.py weather` (`pixi run relay-bridge`, one per host) asks the relay
+(`AGENTBUS_RELAY`, default `https://bsky.network`) for
+`com.atproto.sync.listReposByCollection?collection=org.latha.agentbus.weather` every minute, reads each
+repo's record from its PDS, and gives each provider its own connection to the local hub
+(`agentbus/mirror.py`, shared with the freeq bridge). `procs.call("weather.current",
+place="Berlin")` then becomes `GET <endpoint>/xrpc/org.latha.agentbus.weather.current?place=Berlin`;
+string-only args go as query params, anything else as a POSTed JSON object.
+
+Auth is atproto inter-service auth. With `AGENTBUS_PDS` the bridge has its own rookery identity
+and gets a short-lived JWT for each call from its PDS (`com.atproto.server.getServiceAuth`, `aud`
+= the proc's DID, `lxm` = the method). A proc with an identity (`examples/weather_service.py`
+with `AGENTBUS_PDS` and `AGENTBUS_ENDPOINT`) answers only callers whose JWT checks out against
+the `#atproto` key in their DID document (`AGENTBUS_TRUST` narrows to a DID list). Without an
+identity a proc serves anyone and writes no record, so nothing discovers it.
+
+The relay only lists repos it crawls: the PDS has to be up, deployed with the service-record
+validation, and have asked the relay to crawl it (`ROOKERY_RELAY_HOSTS` includes `bsky.network`).
+
 ## Use it
 
 ```sh

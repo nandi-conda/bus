@@ -1,0 +1,33 @@
+{
+  "lexicon": 1,
+  "id": "org.latha.agentbus.weather.current",
+  "description": "Current conditions for a place. Bus function weather.current. Providers may require an atproto inter-service JWT (aud = provider DID, lxm = this NSID).",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "required": ["place"],
+        "properties": {
+          "place": { "type": "string", "minLength": 1, "maxLength": 256 }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["temp_c", "condition"],
+          "properties": {
+            "temp_c": { "type": "integer", "description": "Degrees Celsius." },
+            "condition": { "type": "string" }
+          }
+        }
+      },
+      "errors": [
+        { "name": "AuthRequired" },
+        { "name": "InvalidToken" },
+        { "name": "Forbidden" }
+      ]
+    }
+  }
+}

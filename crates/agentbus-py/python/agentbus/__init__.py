@@ -24,7 +24,6 @@ Apps call ``procs.call("weather.current", place="Berlin")`` and
 plain broadcast request/response signals that need no hub.
 """
 
-import os
 import threading
 from collections import defaultdict
 
@@ -189,11 +188,7 @@ class Procs:
         from the functions and topics registered so far. Returns the Identity."""
         from . import rookery
 
-        pds = os.environ.get("AGENTBUS_PDS")
-        if not pds:
-            raise RuntimeError("a public proc needs AGENTBUS_PDS, e.g. https://rook.host")
-        handle = os.environ.get("AGENTBUS_HANDLE", self.name)
-        ident = rookery.Identity.load_or_enroll(self.name, pds, handle, os.environ.get("AGENTBUS_INVITE"))
+        ident = rookery.Identity.from_env(self.name)
         record = {"$type": rookery.PROC_COLLECTION, "name": self.name, "createdAt": rookery.now(),
                   "provides": [{"function": f} for f in self._provides],
                   "publishes": [{"topic": t, **({"subjects": s} if s else {})} for t, s in self._publishes]}

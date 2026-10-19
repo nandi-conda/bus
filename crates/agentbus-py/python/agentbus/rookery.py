@@ -19,7 +19,7 @@ import urllib.request
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
@@ -94,6 +94,26 @@ class Identity:
             body["ref"] = invite
         out = self._request("POST", "/api/signup", body, headers={"DPoP": self._proof("POST", "/api/signup")})
         self.did, self.handle = out["did"], out["handle"]
+
+    @classmethod
+    def from_env(cls, name: str) -> "Identity":
+        """``load_or_enroll`` from $AGENTBUS_PDS, $AGENTBUS_HANDLE (default ``name``) and
+        $AGENTBUS_INVITE."""
+        pds = os.environ.get("AGENTBUS_PDS")
+        if not pds:
+            raise RuntimeError(f"{name} needs AGENTBUS_PDS (e.g. https://rook.host) for its identity")
+        return cls.load_or_enroll(name, pds, os.environ.get("AGENTBUS_HANDLE", name),
+                                  os.environ.get("AGENTBUS_INVITE"))
+
+    def service_auth(self, aud: str, lxm: str, ttl: int = 60) -> str:
+        """An atproto inter-service JWT from our PDS: we (``iss``) call method ``lxm`` on ``aud``."""
+        path = "/xrpc/com.atproto.server.getServiceAuth"
+        query = urlencode({"aud": aud, "lxm": lxm, "exp": int(time.time()) + ttl})
+        # RFC 9449: htu is the request URL without its query.
+        return self._request("GET", f"{path}?{query}", headers={
+            "Authorization": f"DPoP {self.access_token}",
+            "DPoP": self._proof("GET", path, ath=_b64(hashlib.sha256(self.access_token.encode()).digest())),
+        })["token"]
 
     def put_record(self, collection: str, rkey: str, record: dict) -> dict:
         return self.xrpc("com.atproto.repo.putRecord",

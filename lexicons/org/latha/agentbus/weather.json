@@ -1,0 +1,31 @@
+{
+  "lexicon": 1,
+  "id": "org.latha.agentbus.weather",
+  "description": "Provider record for the agentbus weather service. A proc serving the service's methods over HTTPS writes one, rkey self; brokers find providers with a relay's com.atproto.sync.listReposByCollection on this collection.",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "literal:self",
+      "record": {
+        "type": "object",
+        "required": ["endpoint", "methods", "createdAt"],
+        "properties": {
+          "endpoint": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 512,
+            "description": "HTTPS base URL. Method M is served at <endpoint>/xrpc/M."
+          },
+          "methods": {
+            "type": "array",
+            "minLength": 1,
+            "maxLength": 64,
+            "items": { "type": "string", "format": "nsid" },
+            "description": "Methods of this service the provider implements, e.g. org.latha.agentbus.weather.current."
+          },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}

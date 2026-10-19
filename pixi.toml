@@ -20,6 +20,10 @@ app = "python examples/app.py"
 watch = "python examples/watch.py"
 # Imports every function announced in #bots on freeq onto the local hub.
 bridge = "python examples/bridge.py"
+# Imports every proc serving dev.agentbus.weather over HTTPS, found through the relay.
+relay-bridge = "python examples/relay_bridge.py weather"
+# The weather proc as an HTTPS XRPC service (what runs on Modal); PORT picks the port.
+weather-service = "python examples/weather_service.py"
 # Hub + weather proc + an app that calls weather.current and follows weather.* for Berlin.
 demo = "dbus-run-session -- python examples/procs_demo.py"
 test = "dbus-run-session -- python -m unittest discover -s tests -v"

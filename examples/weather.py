@@ -11,6 +11,7 @@ import json
 import sys
 
 import agentbus
+from weather_readings import reading
 
 SCHEMA = json.dumps({
     "args": {"type": "object", "required": ["place"],
@@ -24,7 +25,7 @@ procs = agentbus.Procs(name="weather", description="Current conditions and alert
 
 @procs.function("weather.current", schema=SCHEMA)
 def current(place, tick=0):
-    return {"temp_c": float(sum(place.encode()) % 20 + tick % 5), "condition": "cloudy"}
+    return reading(place, tick)
 
 
 @procs.publisher("weather.*", topics=["weather.current", "weather.alert"], subjects="place")

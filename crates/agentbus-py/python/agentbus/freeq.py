@@ -620,75 +620,56 @@ class PublicProc:
 # ── Bridge ──────────────────────────────────────────────────────────────────
 
 
-class _Remote:
-    """One remote proc in #bots, and the local bus connection that stands in for it."""
-
-    def __init__(self, nick, did, functions):
-        self.nick, self.did, self.functions = nick, did, functions
-        self.procs = None  # agentbus.Procs on the local hub, made by the sync thread
-        self.provided = set()
-
-
 class Bridge:
     """Makes functions announced in #bots callable on the local hub.
 
-    Each trusted remote proc gets its own connection to the local hub (``hub``), which provides
-    the functions that proc announced and forwards each call to it over freeq. So the hub sees
-    one provider per remote proc: it ranks them, fails over between them, and an app can list
-    them with ``providers(name)`` and call one with ``call(name, provider=...)``."""
+    Each trusted remote proc in #bots becomes its own provider on the local hub (``hub``),
+    forwarding each call to it over freeq (see ``agentbus.mirror``)."""
 
     def __init__(self, hub=None, name=None, trust=None, call_timeout=CALL_TIMEOUT, **bot_args):
         from . import HUB_NAME
+        from .mirror import Mirror
 
-        self.hub = hub or HUB_NAME
         self.host = host_id()
         self.trust = set(trust) if trust else None
         self.call_timeout = call_timeout
         self.bot = Bot(name or f"bridge-{self.host[:6]}", **bot_args)
         self.bot.on_ready = self._on_ready
         self.bot.on_message = self._on_message
-        self._lock = threading.Lock()
-        self._remote = {}  # nick -> _Remote
-        self._standing = {}  # _Remote -> True, for every remote that still has a hub connection
+        self.mirror = Mirror(hub or HUB_NAME, lambda remote, fn, args: self.call(remote.label, fn, args))
+        self.hub = self.mirror.hub
         self._pending = {}  # call id -> [threading.Event, reply tags, nick]
         self._ids = itertools.count()
-        self._dirty = threading.Event()
-        self._stopping = threading.Event()
-        self._synced = threading.Condition()
-        self._sync_thread = threading.Thread(target=self._sync_loop, name="bridge-sync", daemon=True)
 
     def start(self):
-        self._sync_thread.start()
+        self.mirror.start()
         self.bot.start()
         return self
 
     def stop(self):
         self.bot.stop()
-        with self._lock:
-            self._remote.clear()
-        self._dirty.set()
-        self._stopping.set()
-        self._sync_thread.join(10)
+        self.mirror.stop()
 
     def functions(self):
         """The functions this bridge currently provides on the local hub."""
-        with self._lock:
-            return set().union(*(r.provided for r in self._standing))
+        return self.mirror.functions()
 
     def providers(self, name):
         """[(nick, did)] of the remote procs providing ``name`` on the local hub."""
-        with self._lock:
-            return sorted((r.nick, r.did) for r in self._standing if name in r.provided)
+        return self.mirror.providers(name)
 
     def owners(self):
         """{local unique bus name: (nick, did)}, to label what ``Procs.providers`` returns."""
-        with self._lock:
-            return {r.procs.unique_name: (r.nick, r.did) for r in self._standing if r.procs}
+        return self.mirror.owners()
+
+    def wait_synced(self, timeout=10):
+        """Block until pending announcements have reached the hub (for tests and scripts)."""
+        return self.mirror.wait_synced(timeout)
 
     def _on_ready(self):
-        with self._lock:
-            self._remote.clear()
-        self._dirty.set()
+        with self.mirror.lock:
+            self.mirror.remotes.clear()
+        self.mirror.changed()
         self.bot.tagmsg(self.bot.channel, {"+agentbus/discover": "1"})
 
     def _on_message(self, tags, nick, command, params):
@@ -701,16 +682,13 @@ class Bridge:
             elif "+agentbus/provides" in tags and params[0].lower() == self.bot.channel.lower():
                 self._learn(tags, nick)
         elif command in ("PART", "KICK", "QUIT"):
-            gone = params[1] if command == "KICK" and len(params) > 1 else nick
-            with self._lock:
-                self._remote.pop(gone, None)
-            self._dirty.set()
+            self.mirror.drop(params[1] if command == "KICK" and len(params) > 1 else nick)
         elif command == "NICK" and params:
-            with self._lock:
-                remote = self._remote.pop(nick, None)
+            with self.mirror.lock:
+                remote = self.mirror.remotes.pop(nick, None)
                 if remote:
-                    remote.nick = params[0]
-                    self._remote[params[0]] = remote
+                    remote.key = remote.label = params[0]
+                    self.mirror.remotes[params[0]] = remote
 
     def _learn(self, tags, nick):
         did = tags.get("account")
@@ -718,71 +696,7 @@ class Bridge:
             return  # guests can't be held to anything; our own bus already has its procs
         if self.trust is not None and did not in self.trust:
             return
-        fns = {f for f in tags["+agentbus/provides"].split(",") if f}
-        with self._lock:
-            remote = self._remote.get(nick)
-            if remote and remote.did == did:
-                remote.functions = fns
-            else:
-                self._remote[nick] = _Remote(nick, did, fns)
-        self._dirty.set()
-
-    def _sync_loop(self):
-        # D-Bus calls happen here, never on the freeq reader thread, so replies keep flowing.
-        while True:
-            self._dirty.wait()
-            self._dirty.clear()
-            self._sync()
-            with self._synced:
-                self._synced.notify_all()
-            if self._stopping.is_set() and not self._dirty.is_set():
-                return
-
-    def _sync(self):
-        """Give every remote proc a hub connection providing what it announced; drop the rest."""
-        from . import Procs
-
-        with self._lock:
-            live = list(self._remote.values())
-            gone = [r for r in self._standing if r not in live]
-        for remote in gone:
-            for name in sorted(remote.provided):
-                try:
-                    remote.procs.withdraw(name)
-                except Exception:
-                    pass
-            with self._lock:
-                remote.provided = set()
-                self._standing.pop(remote, None)
-            remote.procs = None  # dropping the connection releases anything left
-        for remote in live:
-            try:
-                if remote.procs is None:
-                    remote.procs = Procs(self.hub)
-                for name in sorted(remote.functions - remote.provided):
-                    remote.procs.provide(name, self._forwarder(remote, name))
-                    with self._lock:
-                        remote.provided.add(name)
-                        self._standing[remote] = True
-                for name in sorted(remote.provided - remote.functions):
-                    remote.procs.withdraw(name)
-                    with self._lock:
-                        remote.provided.discard(name)
-            except Exception as e:
-                print(f"bridge: could not provide {remote.nick}'s functions: {e}", flush=True)
-
-    def wait_synced(self, timeout=10):
-        """Block until pending announcements have reached the hub (for tests and scripts)."""
-        with self._synced:
-            return self._synced.wait_for(lambda: not self._dirty.is_set(), timeout)
-
-    def _forwarder(self, remote, name):
-        def forward(args, info):
-            if info is not None and info.cancelled:
-                raise TimeoutError("call canceled")
-            return self.call(remote.nick, name, args)
-
-        return forward
+        self.mirror.put(nick, nick, did, {f for f in tags["+agentbus/provides"].split(",") if f})
 
     def call(self, nick, name, args):
         """Call ``name`` on one remote proc and wait for its reply."""
