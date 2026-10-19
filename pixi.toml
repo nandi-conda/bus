@@ -21,6 +21,8 @@ weather = { cmd = "python examples/weather.py", depends-on = ["develop"] }
 ui = { cmd = "python examples/ui.py", depends-on = ["develop"] }
 app = { cmd = "python examples/app.py", depends-on = ["develop"] }
 watch = { cmd = "python examples/watch.py", depends-on = ["develop"] }
+# Imports every function announced in #bots on freeq onto the local hub.
+bridge = { cmd = "python examples/bridge.py", depends-on = ["develop"] }
 # Hub + weather proc + an app that calls weather.current and follows weather.* for Berlin.
 demo = { cmd = "dbus-run-session -- python examples/procs_demo.py", depends-on = ["develop"] }
 test-rust = "dbus-run-session -- cargo test --workspace"

@@ -68,11 +68,13 @@ def patterns_overlap(a, b):
 class Procs:
     """A proc's connection: host functions, call functions, publish and subscribe."""
 
-    def __init__(self, hub=HUB_NAME, name=None, description=None, public=False):
+    def __init__(self, hub=HUB_NAME, name=None, description=None, public=False, freeq=None):
         """``public=True`` gives the proc its own rookery identity (needs ``name``). The PDS comes
         from $AGENTBUS_PDS, the handle from $AGENTBUS_HANDLE (default ``name``), and an invite for
-        invite-gated instances from $AGENTBUS_INVITE."""
-        if public and not name:
+        invite-gated instances from $AGENTBUS_INVITE. A public proc also joins #bots on freeq
+        (``go_freeq``); ``freeq`` is a dict of options for that (server, channel, trust), or
+        ``True`` to join #bots without a rookery identity."""
+        if (public or freeq) and not name:
             raise ValueError("a public proc needs a name")
         self._native = _NativeProcs(hub)
         self.topics = self._native.topics
@@ -81,6 +83,10 @@ class Procs:
         self.identity = None
         self._provides = []  # function names, in registration order
         self._publishes = []  # (topic, subjects)
+        self._handlers = {}  # function name -> handler, served to freeq callers
+        self._freeq_options = {} if freeq in (None, True, False) else dict(freeq)
+        self._wants_freeq = bool(freeq) or public
+        self.freeq = None
 
     @property
     def unique_name(self):
@@ -101,9 +107,17 @@ class Procs:
         """Provide ``name`` with ``handler(args, info) -> dict``."""
         self._native.provide(name, handler, schema)
         self._provides.append(name)
+        self._handlers[name] = handler
+        if self.freeq:
+            self.freeq.changed()
 
     def withdraw(self, name):
         self._native.withdraw(name)
+        if name in self._provides:
+            self._provides.remove(name)
+        self._handlers.pop(name, None)
+        if self.freeq:
+            self.freeq.changed()
 
     def call(self, name, timeout=None, provider=None, **args):
         """Call ``name`` through the hub. With ``provider`` (a unique name from
@@ -189,15 +203,33 @@ class Procs:
         self.identity = ident
         return ident
 
+    def go_freeq(self):
+        """Join #bots on freeq as this proc's own bot, announce the functions it provides and
+        answer calls for them (see ``agentbus.freeq``). Its rookery DID, if it has one, is named
+        as the bot's owner. Returns the ``PublicProc``."""
+        if self.freeq is None:
+            from .freeq import PublicProc
+
+            options = {"description": self.description, **self._freeq_options}
+            if self.identity:
+                options.setdefault("owner_did", self.identity.did)
+            self.freeq = PublicProc(self.name, self._handlers, **options).start()
+        return self.freeq
+
     def run_forever(self):
-        """Serve until Ctrl-C. A public proc goes public first."""
+        """Serve until Ctrl-C. A public proc goes public, then joins #bots, first."""
         if self.public and not self.identity:
             ident = self.go_public()
             print(f"{self.name}: public as {ident.handle} ({ident.did})", flush=True)
+        if self._wants_freeq:
+            bot = self.go_freeq().bot
+            print(f"{self.name}: joining {bot.channel} on {bot.server}", flush=True)
         try:
             self._native.run_forever()
         finally:
             self._stopping.set()
+            if self.freeq:
+                self.freeq.stop()
 
 
 def on_signal(signals, path, iface, member, callback):

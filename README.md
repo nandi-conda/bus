@@ -88,6 +88,40 @@ To try it without a deployed rookery, run one locally from rookery-pds with `wra
 --var ROOKERY_HOSTNAME:localhost:8787` and use `AGENTBUS_PDS=http://localhost:8787`. Setting
 `AGENTBUS_TEST_PDS` to that URL also runs `tests/test_public.py`.
 
+## On freeq: #bots
+
+A public proc also joins `#bots` on freeq as its own bot (`agentbus/freeq.py`), after it has its
+rookery identity; `Procs(name="weather", freeq=True)` does only this part. It signs in with a
+did:key kept where freeq's bot-kit keeps one (`~/.freeq/bots/<name>/agent.key`), runs bot-kit's
+announce sequence (PROVENANCE naming its rookery DID as owner, AGENT REGISTER, AGENT MANIFEST,
+PRESENCE, HEARTBEAT), joins `#bots`, and announces what it provides:
+
+```
+@+agentbus/provides=files.list,weather.current;+agentbus/host=<id> TAGMSG #bots
+```
+
+The same names go in its manifest under `[capabilities.channels] "#bots"`, so freeq's
+`/api/v1/channels/%23bots/agent-capabilities` lists them too. It announces again when its
+functions change and whenever someone sends `@+agentbus/discover=1 TAGMSG #bots`.
+
+`examples/bridge.py` (`pixi run bridge`, one per host) joins `#bots`, asks who provides what, and
+provides each announced function on the local hub. A local `procs.call("weather.current", ...)`
+then goes as a tag-only DM to a proc in `#bots` that announced it
+(`+agentbus/call`, `+agentbus/fn`, `+agentbus/args`), which answers with `+agentbus/result` or
+`+agentbus/error`. The bridge rotates between providers and fails over on errors and timeouts.
+
+- Only announcements from signed-in DIDs count; `AGENTBUS_TRUST=did:...,did:...` narrows that.
+- A bridge never imports procs from its own bus (`+agentbus/host`).
+- `AGENTBUS_FREEQ_SERVER` picks the server (default `ircs://irc.freeq.at:6697`) and
+  `AGENTBUS_FREEQ_DEBUG=1` prints every line received.
+- Limits come from freeq: 8 KiB lines (so args and results stay under ~7 KB each), and about
+  10 commands per second per connection, which the bot paces itself to. A proc that crashes
+  stays in `#bots` for 30 s (freeq's reconnect grace), so calls to it time out and fail over until
+  then; a clean exit PARTs at once.
+
+`tests/test_freeq.py` runs a bridge and two procs on separate buses against a freeq server named
+by `AGENTBUS_FREEQ_TEST_SERVER` (e.g. a local `freeq-server` at `irc://127.0.0.1:6889`).
+
 ## Use it
 
 ```sh
@@ -99,5 +133,6 @@ pixi run develop             # build the Python package into the pixi env
 
 ## Not yet
 
-From PROCS.md: the public proc's freeq bot connection, the bridge, remote providers ranked after local ones, and typed front ends generated from
-lexicons.
+From PROCS.md: topics over freeq, signing in to freeq as the rookery DID instead of a did:key,
+remote providers ranked after local ones (today the hub ranks bridged ones by latency like any
+other), and typed front ends generated from lexicons.
