@@ -24,6 +24,8 @@ relay-bridge = "python examples/relay_bridge.py weather"
 weather-service = "python examples/weather_service.py"
 # Hub + weather proc + an app that calls weather.current and follows weather.* for Berlin.
 demo = "dbus-run-session -- python examples/procs_demo.py"
+# A file proc for File -> Open on this machine's hub: files-provider dir NAME PATH.
+files-provider = "python examples/files/provider.py"
 # systemd user unit for the hub: started now, and by D-Bus activation on the first call.
 install-service = "python tools/service.py install"
 uninstall-service = "python tools/service.py uninstall"
@@ -55,6 +57,8 @@ publish = "bash recipe/publish.sh"
 pyside6 = ">=6.7"
 
 [feature.gui.tasks]
+# File -> Open on this machine's hub (the installed one, started by D-Bus on the first call).
+files-gui = "python examples/files/gui.py"
 # File -> Open GUI: asks every files.list provider on the hub and lists the answers.
 files-demo = "dbus-run-session -- python examples/files/demo.py"
 

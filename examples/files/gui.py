@@ -1,22 +1,34 @@
-"""File -> Open: ask every files.list provider on the hub and list each answer as it arrives."""
+"""File -> Open: ask every files.list provider on the hub and list each answer as it arrives.
+
+The hub is the installed one (`pixi run install-service`; D-Bus starts it on the first call) or
+any hub on this session bus. A hub that just started is still finding remote providers through
+the relay, so the dialog keeps looking for WAIT seconds and asks each provider as it appears.
+Problems (no hub, a provider that fails) show in the dialog itself."""
 
 import sys
 import threading
+import time
 
 import agentbus
 from PySide6.QtCore import QObject, Qt, Signal, Slot
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QBrush, QKeySequence
 from PySide6.QtWidgets import (QApplication, QDialog, QDialogButtonBox, QLabel, QMainWindow,
                                QPlainTextEdit, QTreeWidget, QTreeWidgetItem, QVBoxLayout)
 
 from common import FUNCTION
 
+WAIT = 30  # seconds to keep looking for providers, as examples/app.py does
+CALL_TIMEOUT = 20  # a remote proc on Modal can take a while to wake up
+
 
 class Replies(QObject):
-    """Carries answers from the calling threads to the GUI thread."""
+    """Carries news from the finder and calling threads to the GUI thread."""
 
-    arrived = Signal(dict)
-    failed = Signal(str)
+    asking = Signal(str)  # a provider was found and asked
+    arrived = Signal(str, dict)  # owner, answer
+    failed = Signal(str, str)  # owner, error
+    hub_missing = Signal(str)
+    done_looking = Signal()
 
 
 def human_size(n):
@@ -29,68 +41,152 @@ def human_size(n):
     return f"{n:.1f} GB"
 
 
+def error_text(e):
+    return f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+
+
 class OpenDialog(QDialog):
     """Lists the files every files.list provider answers with."""
 
     def __init__(self, parent):
         super().__init__(parent)
         self.setWindowTitle("Open File")
-        self.resize(620, 400)
-        self.status = QLabel("Asking the bus for files…")
+        self.resize(640, 420)
+        self.procs = parent.procs
+        self.status = QLabel()
+        self.status.setWordWrap(True)
+        self.status.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["File", "Provider", "Size"])
-        self.tree.setColumnWidth(0, 330)
-        self.tree.setColumnWidth(1, 130)
-        self.tree.itemDoubleClicked.connect(lambda item: item.parent() and self.accept())
-        buttons = QDialogButtonBox(QDialogButtonBox.Open | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
+        self.tree.setColumnWidth(0, 340)
+        self.tree.setColumnWidth(1, 140)
+        self.tree.itemDoubleClicked.connect(lambda item: self.selected() and self.accept())
+        self.tree.currentItemChanged.connect(self.update_buttons)
+        self.buttons = QDialogButtonBox(QDialogButtonBox.Open | QDialogButtonBox.Retry
+                                        | QDialogButtonBox.Cancel)
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+        self.buttons.button(QDialogButtonBox.Retry).clicked.connect(self.look)
         layout = QVBoxLayout(self)
-        for w in (self.status, self.tree, buttons):
+        for w in (self.status, self.tree, self.buttons):
             layout.addWidget(w)
+        self.stop = threading.Event()
+        self.finished.connect(lambda _: self.stop.set())
+        self.look()
 
+    def look(self):
+        """(Re)start: clear the list and look for providers in the background."""
+        self.stop.set()
+        self.stop = threading.Event()
+        self.tree.clear()
+        self.asked, self.answered, self.files, self.looking, self.problem = 0, 0, 0, True, None
         self.replies = Replies()
+        self.replies.asking.connect(self.on_asking)
         self.replies.arrived.connect(self.on_files)
         self.replies.failed.connect(self.on_failed)
-        self.procs = parent.procs
-        providers = [owner for owner, _ in self.procs.providers(FUNCTION)]
-        if not providers:
-            self.status.setText(f"Nobody on the bus provides {FUNCTION}")
-        self.waiting, self.files = len(providers), 0
-        for owner in providers:
-            threading.Thread(target=self.ask, args=(owner,), daemon=True).start()
+        self.replies.hub_missing.connect(self.on_hub_missing)
+        self.replies.done_looking.connect(self.on_done_looking)
+        threading.Thread(target=self.find, args=(self.replies, self.stop), daemon=True).start()
+        self.update_status()
 
-    def ask(self, owner):
+    def find(self, replies, stop):
+        """Ask each files.list provider once, as the hub learns of it, until WAIT runs out."""
+        seen = set()
+        deadline = time.monotonic() + WAIT
+        while not stop.is_set():
+            try:
+                owners = [owner for owner, _ in self.procs.providers(FUNCTION)]
+            except agentbus.HubNotRunning as e:
+                return replies.hub_missing.emit(str(e))
+            except agentbus.BusError as e:
+                return replies.hub_missing.emit(error_text(e))
+            for owner in owners:
+                if owner not in seen:
+                    seen.add(owner)
+                    replies.asking.emit(owner)
+                    threading.Thread(target=self.ask, args=(replies, stop, owner), daemon=True).start()
+            if time.monotonic() >= deadline or stop.wait(0.5):
+                break
+        if not stop.is_set():
+            replies.done_looking.emit()
+
+    def ask(self, replies, stop, owner):
         """One call per provider, so a slow remote proc never holds up the local disk."""
         try:
-            self.replies.arrived.emit(self.procs.call(FUNCTION, timeout=10, provider=owner))
-        except (agentbus.CallError, agentbus.NoProvider, TimeoutError) as e:
-            self.replies.failed.emit(f"{owner}: {e}")
+            answer = self.procs.call(FUNCTION, timeout=CALL_TIMEOUT, provider=owner)
+        except Exception as e:  # shown in the list: every way a call can fail is the user's to see
+            answer = e
+        if stop.is_set():
+            return
+        if isinstance(answer, Exception):
+            replies.failed.emit(owner, error_text(answer))
+        else:
+            replies.arrived.emit(owner, answer)
 
-    @Slot(dict)
-    def on_files(self, answer):
+    @Slot(str)
+    def on_asking(self, owner):
+        self.asked += 1
+        self.update_status()
+
+    @Slot(str, dict)
+    def on_files(self, owner, answer):
         """One collapsible group per provider, its files under it."""
-        group = QTreeWidgetItem([f"{answer['provider']} ({len(answer['files'])})"])
-        group.setFlags(group.flags() & ~Qt.ItemIsSelectable)
+        group = self.group(f"{answer['provider']} ({len(answer['files'])})", owner)
         for f in answer["files"]:
             item = QTreeWidgetItem(group, [f["name"], answer["provider"], human_size(f.get("size"))])
             item.setToolTip(0, f["uri"])
             item.setData(0, Qt.UserRole, f["uri"])
-        self.tree.addTopLevelItem(group)
-        group.setFirstColumnSpanned(True)
         group.setExpanded(len(answer["files"]) <= 10)
         self.files += len(answer["files"])
-        self.answered()
+        self.answered += 1
+        self.update_status()
+
+    @Slot(str, str)
+    def on_failed(self, owner, message):
+        """A provider that failed gets a row saying why, where its files would have been."""
+        group = self.group(f"{owner} couldn't list files: {message}", owner)
+        group.setForeground(0, QBrush(Qt.red))
+        self.answered += 1
+        self.update_status()
 
     @Slot(str)
-    def on_failed(self, message):
-        print(f"files.list failed: {message}", file=sys.stderr, flush=True)
-        self.answered()
+    def on_hub_missing(self, message):
+        self.looking, self.problem = False, message
+        self.update_status()
 
-    def answered(self):
-        self.waiting -= 1
-        more = f", waiting on {self.waiting}" if self.waiting else ""
-        self.status.setText(f"{self.files} files from {self.tree.topLevelItemCount()} providers{more}")
+    @Slot()
+    def on_done_looking(self):
+        self.looking = False
+        self.update_status()
+
+    def group(self, text, owner):
+        group = QTreeWidgetItem([text])
+        group.setToolTip(0, owner)
+        group.setFlags(group.flags() & ~Qt.ItemIsSelectable)
+        self.tree.addTopLevelItem(group)
+        group.setFirstColumnSpanned(True)
+        return group
+
+    def update_status(self):
+        if self.problem:
+            text = f"Can't reach the bus. {self.problem}"
+        elif not self.asked:
+            text = (f"Looking for {FUNCTION} providers…" if self.looking else
+                    f"Nobody on the bus provides {FUNCTION} yet. Start a file proc, or Retry.")
+        else:
+            text = f"{self.files} files from {self.answered} of {self.asked} providers"
+            if self.asked > self.answered:
+                text += f", waiting on {self.asked - self.answered}"
+            if self.looking:
+                text += ", still looking for more…"
+        self.status.setText(text)
+        self.status.setStyleSheet("color: red;" if self.problem else "")
+        self.update_buttons()
+
+    def update_buttons(self):
+        self.buttons.button(QDialogButtonBox.Open).setEnabled(self.selected() is not None)
+        self.buttons.button(QDialogButtonBox.Retry).setVisible(
+            bool(self.problem) or (not self.looking and not self.asked))
 
     def selected(self):
         item = self.tree.currentItem()
@@ -104,7 +200,7 @@ class MainWindow(QMainWindow):
         self.resize(720, 480)
         self.procs = agentbus.Procs()
         self.editor = QPlainTextEdit()
-        self.editor.setPlaceholderText("File → Open lists files from everyone on the bus.")
+        self.editor.setPlaceholderText("File → Open lists files from every proc on the bus.")
         self.setCentralWidget(self.editor)
         open_action = QAction("&Open…", self, shortcut=QKeySequence.Open, triggered=self.open_file)
         quit_action = QAction("&Quit", self, shortcut=QKeySequence.Quit, triggered=self.close)

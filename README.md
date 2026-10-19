@@ -123,6 +123,8 @@ pixi run demo                # hub + weather proc + an app calling and following
 pixi run app Paris           # print Paris's weather and exit (needs a running hub)
 pixi run app Paris --watch   # then keep following it until Ctrl-C (--watch 5: five events)
 pixi run -e gui files-demo   # hub + a directory proc + a bot proc + the File -> Open GUI
+pixi run -e gui files-gui    # the File -> Open GUI on this machine's hub (install-service)
+pixi run files-provider dir docs ~/Documents   # serve a directory to File -> Open
 ```
 
 The default and `gui` environments install the prebuilt `agentbus` conda package
