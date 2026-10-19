@@ -1,5 +1,5 @@
 //! The hub: one process and bus name ([`HUB_NAME`]) serving both topics
-//! (`dev.agentbus.Topics1`) and functions (`dev.agentbus.Functions1`).
+//! (`org.latha.agentbus.Topics1`) and functions (`org.latha.agentbus.Functions1`).
 
 use futures_util::StreamExt;
 use zbus::{Connection, connection, fdo::DBusProxy};
@@ -10,7 +10,7 @@ use crate::{
     topics::{self, TOPICS_PATH},
 };
 
-pub const HUB_NAME: &str = "dev.agentbus.Hub";
+pub const HUB_NAME: &str = "org.latha.agentbus.Hub";
 
 /// A running hub. Dropping it closes its connection.
 pub struct Hub {

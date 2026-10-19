@@ -16,7 +16,7 @@ A proc is an ordinary process that hosts functions and publishes topics::
     procs.run_forever()
 
 A public proc (``Procs(name="weather", public=True)``) is also its own bot account on rookery-pds:
-``run_forever`` enrolls it (or loads its key), writes its ``dev.agentbus.proc`` record from what it
+``run_forever`` enrolls it (or loads its key), writes its ``org.latha.agentbus.proc`` record from what it
 registered, and stamps its DID on everything it publishes. See ``agentbus.rookery``.
 
 Apps call ``procs.call("weather.current", place="Berlin")`` and
@@ -205,7 +205,7 @@ class Procs:
             stop.set()
 
     def go_public(self):
-        """Enroll (or load) this proc's rookery account and write its ``dev.agentbus.proc`` record
+        """Enroll (or load) this proc's rookery account and write its ``org.latha.agentbus.proc`` record
         from the functions and topics registered so far. Returns the Identity."""
         from . import rookery
 

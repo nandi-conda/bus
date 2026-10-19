@@ -18,7 +18,7 @@ weather = "python examples/weather.py"
 ui = "python examples/ui.py"
 app = "python examples/app.py"
 watch = "python examples/watch.py"
-# Imports every proc serving dev.agentbus.weather over HTTPS, found through the relay.
+# Imports every proc serving org.latha.agentbus.weather over HTTPS, found through the relay.
 relay-bridge = "python examples/relay_bridge.py weather"
 # The weather proc as an HTTPS XRPC service (what runs on Modal); PORT picks the port.
 weather-service = "python examples/weather_service.py"

@@ -11,7 +11,7 @@ import unittest
 
 import agentbus
 
-HUB = "dev.agentbus.test.PyProcs"
+HUB = "org.latha.agentbus.test.PyProcs"
 EXAMPLES = os.path.join(os.path.dirname(__file__), "..", "examples")
 SCHEMA = json.dumps({"args": {"type": "object", "required": ["place"]}})
 

@@ -5,7 +5,7 @@ import unittest
 
 import agentbus
 
-HUB = "dev.agentbus.test.PyTopics"
+HUB = "org.latha.agentbus.test.PyTopics"
 
 
 class TopicsTest(unittest.TestCase):

@@ -1,8 +1,8 @@
 //! App-domain subscriptions: apps subscribe to topics such as `weather.current` for a subject such
 //! as `Berlin`, and whatever proc publishes that topic feeds them through a hub.
 //!
-//! The hub (see [`crate::hub`]) serves `dev.agentbus.Topics1` at [`TOPICS_PATH`]:
-//! - `Subscribe(s pattern, s subject) -> o` creates a `dev.agentbus.Subscription1` object owned by
+//! The hub (see [`crate::hub`]) serves `org.latha.agentbus.Topics1` at [`TOPICS_PATH`]:
+//! - `Subscribe(s pattern, s subject) -> o` creates a `org.latha.agentbus.Subscription1` object owned by
 //!   the caller. Its `Event(s topic, s subject, a{sv} payload, t seq)` signals go to the caller
 //!   only. Retained values matching the subscription are replayed straight away. The subscription
 //!   goes away on `Unsubscribe()` or when the caller leaves the bus.
@@ -32,9 +32,9 @@ use zbus::{
 
 use crate::{Dict, Error, Result, dict_to_json, json_to_dict};
 
-pub const TOPICS_PATH: &str = "/dev/agentbus/Topics";
-pub const TOPICS_IFACE: &str = "dev.agentbus.Topics1";
-pub const SUBSCRIPTION_IFACE: &str = "dev.agentbus.Subscription1";
+pub const TOPICS_PATH: &str = "/org/latha/agentbus/Topics";
+pub const TOPICS_IFACE: &str = "org.latha.agentbus.Topics1";
+pub const SUBSCRIPTION_IFACE: &str = "org.latha.agentbus.Subscription1";
 
 /// Does `pattern` (`a.b`, `a.*` or `*`) cover `topic`?
 pub fn pattern_matches(pattern: &str, topic: &str) -> bool {
@@ -108,7 +108,7 @@ pub(crate) struct HubObject {
     state: State,
 }
 
-#[interface(name = "dev.agentbus.Topics1")]
+#[interface(name = "org.latha.agentbus.Topics1")]
 impl HubObject {
     async fn subscribe(
         &self,
@@ -239,7 +239,7 @@ struct SubscriptionObject {
     state: State,
 }
 
-#[interface(name = "dev.agentbus.Subscription1")]
+#[interface(name = "org.latha.agentbus.Subscription1")]
 impl SubscriptionObject {
     async fn unsubscribe(
         &self,

@@ -24,7 +24,7 @@ from urllib.parse import urlencode, urlsplit
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
-PROC_COLLECTION = "dev.agentbus.proc"
+PROC_COLLECTION = "org.latha.agentbus.proc"
 STATE_DIR = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "agentbus/procs"
 
 

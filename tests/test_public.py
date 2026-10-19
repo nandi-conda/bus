@@ -1,4 +1,4 @@
-"""A public proc against a real rookery: enrollment, its dev.agentbus.proc record, and its DID on
+"""A public proc against a real rookery: enrollment, its org.latha.agentbus.proc record, and its DID on
 what it publishes. Needs a running rookery (e.g. `wrangler dev` in rookery-pds) named by
 $AGENTBUS_TEST_PDS; skipped otherwise. Run under dbus-run-session (pixi run test-py does)."""
 
@@ -13,7 +13,7 @@ from unittest import mock
 import agentbus
 
 PDS = os.environ.get("AGENTBUS_TEST_PDS")
-HUB = "dev.agentbus.test.PyPublic"
+HUB = "org.latha.agentbus.test.PyPublic"
 
 
 @unittest.skipUnless(PDS, "AGENTBUS_TEST_PDS not set")
@@ -41,7 +41,7 @@ class PublicProcTest(unittest.TestCase):
                 # A second start loads the saved key instead of enrolling again.
                 self.assertEqual(rookery.Identity.load_or_enroll("weather", PDS, handle).did, ident.did)
 
-        url = f"{PDS}/xrpc/dev.agentbus.listProcs?did={ident.did}"
+        url = f"{PDS}/xrpc/org.latha.agentbus.listProcs?did={ident.did}"
         [view] = json.load(urllib.request.urlopen(url))["procs"]
         self.assertEqual(view["value"]["provides"], [{"function": "weather.current"}])
         self.assertEqual(view["value"]["publishes"], [

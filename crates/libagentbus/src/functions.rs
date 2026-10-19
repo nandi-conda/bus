@@ -1,7 +1,7 @@
 //! Functions: procs host named calls such as `weather.current`, and apps call them by name
 //! through the hub, never naming the proc.
 //!
-//! The hub (see [`crate::hub`]) serves `dev.agentbus.Functions1` at [`FUNCTIONS_PATH`]:
+//! The hub (see [`crate::hub`]) serves `org.latha.agentbus.Functions1` at [`FUNCTIONS_PATH`]:
 //! - `Provide(s name, s schema)` makes the caller a provider of `name` for as long as it stays on
 //!   the bus. `schema` is `""` or a JSON object `{"args": <JSON Schema>, "result": <JSON Schema>}`
 //!   (both optional) that the hub enforces on every call.
@@ -12,7 +12,7 @@
 //!   next one. `options.timeout` (seconds, default 25) bounds the whole call.
 //! - `Providers(s name) -> a(sa{sv})`, `Functions() -> as`, signal `ProvidersChanged(s, u)`.
 //!
-//! Providers serve `dev.agentbus.Provider1` at [`PROVIDER_PATH`]:
+//! Providers serve `org.latha.agentbus.Provider1` at [`PROVIDER_PATH`]:
 //! `Invoke(s name, a{sv} args, a{sv} meta) -> a{sv}` and `Cancel(s call_id)`, accepted only from
 //! the hub. `meta` carries `call_id`, `caller` (the app's unique name) and `deadline_ms`. When an
 //! app leaves the bus mid-call, or a call times out, the hub sends `Cancel`.
@@ -35,10 +35,10 @@ use zbus::{Connection, connection, fdo::DBusProxy, interface, message::Header, n
 
 use crate::{Dict, Error, Result, dict_to_json, json_to_dict, topics};
 
-pub const FUNCTIONS_PATH: &str = "/dev/agentbus/Functions";
-pub const FUNCTIONS_IFACE: &str = "dev.agentbus.Functions1";
-pub const PROVIDER_PATH: &str = "/dev/agentbus/Provider";
-pub const PROVIDER_IFACE: &str = "dev.agentbus.Provider1";
+pub const FUNCTIONS_PATH: &str = "/org/latha/agentbus/Functions";
+pub const FUNCTIONS_IFACE: &str = "org.latha.agentbus.Functions1";
+pub const PROVIDER_PATH: &str = "/org/latha/agentbus/Provider";
+pub const PROVIDER_IFACE: &str = "org.latha.agentbus.Provider1";
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(25);
 
 /// Pinned providers: function name -> bus name of the proc that must answer it.
@@ -193,7 +193,7 @@ enum Attempt {
     TimedOut,
 }
 
-#[interface(name = "dev.agentbus.Functions1")]
+#[interface(name = "org.latha.agentbus.Functions1")]
 impl HubObject {
     async fn provide(
         &self,
@@ -640,7 +640,7 @@ impl ProviderObject {
     }
 }
 
-#[interface(name = "dev.agentbus.Provider1")]
+#[interface(name = "org.latha.agentbus.Provider1")]
 impl ProviderObject {
     async fn invoke(
         &self,

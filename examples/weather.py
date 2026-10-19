@@ -3,7 +3,7 @@ only for the places someone watches. The readings are made up; a real proc would
 weather API.
 
 It is a public proc: its own bot account on rookery ($AGENTBUS_PDS, handle $AGENTBUS_HANDLE or
-"weather"), with a dev.agentbus.proc record listing what it provides and publishes, and its DID
+"weather"), with a org.latha.agentbus.proc record listing what it provides and publishes, and its DID
 on every reading. `--local` keeps it on the local bus with no identity."""
 
 import json

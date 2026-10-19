@@ -39,9 +39,9 @@ Calls raise `agentbus.NoProvider`, `TimeoutError` or `agentbus.CallError`.
 
 ## D-Bus surface
 
-The hub owns `dev.agentbus.Hub`:
+The hub owns `org.latha.agentbus.Hub`:
 
-- `dev.agentbus.Functions1` at `/dev/agentbus/Functions`: `Provide(s name, s schema)`,
+- `org.latha.agentbus.Functions1` at `/org/latha/agentbus/Functions`: `Provide(s name, s schema)`,
   `Withdraw(s)`, `Call(s name, a{sv} args, a{sv} options) -> a{sv}`, `Providers(s) -> a(sa{sv})`,
   `Functions() -> as`, signal `ProvidersChanged(s, u)`. `schema` is `""` or
   `{"args": <JSON Schema>, "result": <JSON Schema>}`, enforced on every call. Routing: the
@@ -50,11 +50,11 @@ The hub owns `dev.agentbus.Hub`:
   rate and latency, failing over on errors and malformed results. `options.timeout` defaults to
   25 s. Registrations are leases on the provider's connection; if the caller leaves or the
   deadline passes, the provider gets `Cancel`.
-- Providers serve `dev.agentbus.Provider1` at `/dev/agentbus/Provider`:
+- Providers serve `org.latha.agentbus.Provider1` at `/org/latha/agentbus/Provider`:
   `Invoke(s name, a{sv} args, a{sv} meta) -> a{sv}` and `Cancel(s call_id)`, accepted only from
   the hub.
-- `dev.agentbus.Topics1` at `/dev/agentbus/Topics`: `Subscribe(s pattern, s subject) -> o`
-  creates a `dev.agentbus.Subscription1` whose `Event(s topic, s subject, a{sv} payload, t seq)`
+- `org.latha.agentbus.Topics1` at `/org/latha/agentbus/Topics`: `Subscribe(s pattern, s subject) -> o`
+  creates a `org.latha.agentbus.Subscription1` whose `Event(s topic, s subject, a{sv} payload, t seq)`
   signals go to the subscriber only, starting with retained values. `Publish(s, s, a{sv}) -> u`
   fans out and retains. `Demand() -> a(ssu)` and `DemandChanged(s, s, u)` let publishers produce
   only what someone watches. Subscriptions end on `Unsubscribe()` or when the subscriber leaves.
@@ -75,7 +75,7 @@ own thread, listing every answer as it arrives.
 [rookery-pds](https://github.com/nandi-conda/rookery-pds) (PROCS.md §4.1). On `run_forever` it
 enrolls `$AGENTBUS_HANDLE` (default: its name) on `$AGENTBUS_PDS` with a WelcomeMat RSA-4096 key
 (plus `$AGENTBUS_INVITE` on invite-gated instances), or loads the key it saved under
-`$XDG_STATE_HOME/agentbus/procs/<name>/`. It then writes one `dev.agentbus.proc` record listing the
+`$XDG_STATE_HOME/agentbus/procs/<name>/`. It then writes one `org.latha.agentbus.proc` record listing the
 functions it provides and the topics it publishes (`@publisher(pattern, topics=[...],
 subjects="place")`), and every payload it publishes carries `source: <its DID>`.
 `examples/weather.py` is public; `--local` keeps it on the local bus.

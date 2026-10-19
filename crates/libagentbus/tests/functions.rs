@@ -37,7 +37,7 @@ fn code(e: Error) -> String {
 
 #[tokio::test]
 async fn call_validates_and_fails_over() {
-    let hub_name = "dev.agentbus.test.FunctionsA";
+    let hub_name = "org.latha.agentbus.test.FunctionsA";
     let _hub = hub::serve_with_pins(hub_name, HashMap::new())
         .await
         .unwrap();
@@ -115,7 +115,7 @@ async fn call_validates_and_fails_over() {
 
 #[tokio::test]
 async fn malformed_results_are_never_delivered() {
-    let hub_name = "dev.agentbus.test.FunctionsB";
+    let hub_name = "org.latha.agentbus.test.FunctionsB";
     let _hub = hub::serve_with_pins(hub_name, HashMap::new())
         .await
         .unwrap();
@@ -141,16 +141,16 @@ async fn malformed_results_are_never_delivered() {
 
 #[tokio::test]
 async fn pins_win_and_timeouts_cancel() {
-    let hub_name = "dev.agentbus.test.FunctionsC";
+    let hub_name = "org.latha.agentbus.test.FunctionsC";
     let pinned = Procs::connect(hub_name).await.unwrap();
     pinned
         .connection()
-        .request_name("dev.agentbus.test.PinnedWeather")
+        .request_name("org.latha.agentbus.test.PinnedWeather")
         .await
         .unwrap();
     let pins = HashMap::from([(
         "weather.current".to_string(),
-        "dev.agentbus.test.PinnedWeather".to_string(),
+        "org.latha.agentbus.test.PinnedWeather".to_string(),
     )]);
     let _hub = hub::serve_with_pins(hub_name, pins).await.unwrap();
     let _other = weather(hub_name, 1.0).await;
@@ -209,7 +209,7 @@ async fn pins_win_and_timeouts_cancel() {
 
 #[tokio::test]
 async fn providers_only_answer_the_hub() {
-    let hub_name = "dev.agentbus.test.FunctionsD";
+    let hub_name = "org.latha.agentbus.test.FunctionsD";
     let _hub = hub::serve_with_pins(hub_name, HashMap::new())
         .await
         .unwrap();
@@ -234,7 +234,7 @@ async fn providers_only_answer_the_hub() {
 
 #[tokio::test]
 async fn call_one_named_provider() {
-    let hub_name = "dev.agentbus.test.FunctionsProvider";
+    let hub_name = "org.latha.agentbus.test.FunctionsProvider";
     let _hub = hub::serve_with_pins(hub_name, HashMap::new())
         .await
         .unwrap();
