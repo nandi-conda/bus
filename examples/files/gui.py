@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (QApplication, QDialog, QDialogButtonBox, QLabel, 
 from common import FUNCTION
 
 WAIT = 30  # seconds to keep looking for providers, as examples/app.py does
-CALL_TIMEOUT = 20  # a remote proc on Modal can take a while to wake up
+CALL_TIMEOUT = 90  # past a remote proc's cold start on Modal, as examples/app.py allows
 
 
 class Replies(QObject):
