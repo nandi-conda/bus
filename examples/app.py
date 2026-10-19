@@ -18,7 +18,7 @@ procs = agentbus.Procs()
 deadline = time.monotonic() + 30
 while not procs.providers("weather.current") and time.monotonic() < deadline:
     time.sleep(0.5)
-print(f"app: weather.current({args.place}) = {procs.call('weather.current', place=args.place)}", flush=True)
+print(f"app: weather.current({args.place}) = {procs.call('weather.current', timeout=90, place=args.place)}", flush=True)
 if args.watch is not None:
     sub = procs.subscribe("weather.*", args.place)
     try:
