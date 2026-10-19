@@ -1,0 +1,50 @@
+# Conda package for the agentbus Python extension (libagentbus statically linked in).
+# Build + publish a new version: pixi run -e build publish
+# Version comes from the Cargo workspace; build number is the git commit count,
+# so every publish from a newer main commit wins without bumping anything.
+context:
+  name: agentbus
+  version: ${{ load_from_file("../Cargo.toml").workspace.package.version }}
+
+package:
+  name: ${{ name }}
+  version: ${{ version }}
+
+source:
+  path: ..
+  use_gitignore: true
+
+build:
+  number: ${{ env.get("AGENTBUS_BUILD_NUMBER", default="0") | int }}
+  script:
+    - ${{ PYTHON }} -m pip install crates/agentbus-py -vv --no-deps --no-build-isolation
+
+requirements:
+  build:
+    - if: build_platform != target_platform
+      then:
+        - python
+        - cross-python_${{ target_platform }}
+        - maturin >=1.9,<2
+    - ${{ compiler('c') }}
+    - ${{ compiler('rust') }}
+  host:
+    - python
+    - pip
+    - maturin >=1.9,<2
+  run:
+    - python
+    - dbus
+    - cryptography >=42
+
+tests:
+  - python:
+      imports:
+        - agentbus
+        - agentbus.rookery
+      pip_check: false
+
+about:
+  homepage: https://github.com/nandi-conda/bus
+  license: MIT
+  summary: Python bindings for libagentbus (networked procs over D-Bus)

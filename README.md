@@ -130,11 +130,23 @@ by `AGENTBUS_FREEQ_TEST_SERVER` (e.g. a local `freeq-server` at `irc://127.0.0.1
 ## Use it
 
 ```sh
-pixi run test                # Rust + Python tests on a private bus (dbus-run-session)
+pixi run test                # Python tests on a private bus (dbus-run-session)
 pixi run demo                # hub + weather proc + an app calling and following weather
 pixi run -e gui files-demo   # hub + a directory proc + a bot proc + the File -> Open GUI
-pixi run develop             # build the Python package into the pixi env
 ```
+
+The default and `gui` environments install the prebuilt `agentbus` conda package
+(Rust core lib + PyO3 extension) from https://prefix.dev/channels/nandi-testing, so
+nothing compiles locally. Building the crate lives in the `build` environment:
+
+```sh
+pixi run -e build test-rust      # Rust tests
+pixi run -e build test-py-local  # build the extension locally and run the Python tests on it
+pixi run -e build publish        # rattler-build linux-64 + linux-aarch64, upload to prefix.dev
+```
+
+After a core-lib change lands on main, run `publish` from a cloud container and then
+`pixi update agentbus`. The build number is the main commit count, so no version bump is needed.
 
 ## Not yet
 

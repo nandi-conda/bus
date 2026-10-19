@@ -2,39 +2,56 @@
 name = "bus"
 version = "0.1.0"
 description = "libagentbus: networked procs on D-Bus, with Python bindings"
-channels = ["conda-forge"]
+# agentbus (the Rust core lib + PyO3 extension) is built by recipe/ and published
+# to prefix.dev/nandi-testing; conda-forge stays first for everything else.
+channels = ["conda-forge", "https://prefix.dev/nandi-testing"]
 platforms = ["linux-64", "linux-aarch64"]
 
 [dependencies]
 python = "3.13.*"
-maturin = ">=1.9,<2"
-rust = ">=1.85"
 dbus = "*"
 cryptography = ">=42"
 
 [tasks]
-build = "cargo build --workspace"
-develop = "maturin develop --release -m crates/agentbus-py/Cargo.toml"
-wheel = "maturin build --release -m crates/agentbus-py/Cargo.toml"
-hub = { cmd = "python examples/hub.py", depends-on = ["develop"] }
-weather = { cmd = "python examples/weather.py", depends-on = ["develop"] }
-ui = { cmd = "python examples/ui.py", depends-on = ["develop"] }
-app = { cmd = "python examples/app.py", depends-on = ["develop"] }
-watch = { cmd = "python examples/watch.py", depends-on = ["develop"] }
+hub = "python examples/hub.py"
+weather = "python examples/weather.py"
+ui = "python examples/ui.py"
+app = "python examples/app.py"
+watch = "python examples/watch.py"
 # Imports every function announced in #bots on freeq onto the local hub.
-bridge = { cmd = "python examples/bridge.py", depends-on = ["develop"] }
+bridge = "python examples/bridge.py"
 # Hub + weather proc + an app that calls weather.current and follows weather.* for Berlin.
-demo = { cmd = "dbus-run-session -- python examples/procs_demo.py", depends-on = ["develop"] }
+demo = "dbus-run-session -- python examples/procs_demo.py"
+test = "dbus-run-session -- python -m unittest discover -s tests -v"
+
+# The published package. Python code runs against this, never a local build.
+[feature.pkg.dependencies]
+agentbus = { version = "*", channel = "https://prefix.dev/nandi-testing" }
+
+# Building the Rust core lib and publishing it (cloud containers only).
+[feature.build.dependencies]
+rust = ">=1.85"
+maturin = ">=1.9,<2"
+rattler-build = "*"
+git = "*"
+
+[feature.build.tasks]
+build = "cargo build --workspace"
 test-rust = "dbus-run-session -- cargo test --workspace"
-test-py = { cmd = "dbus-run-session -- python -m unittest discover -s tests -v", depends-on = ["develop"] }
-test = { depends-on = ["test-rust", "test-py"] }
+# Local dev loop: build the extension into the build env and run the Python tests on it.
+develop = "maturin develop --release -m crates/agentbus-py/Cargo.toml"
+test-py-local = { cmd = "dbus-run-session -- python -m unittest discover -s tests -v", depends-on = ["develop"] }
+# Build linux-64 + linux-aarch64 conda packages and upload to prefix.dev.
+publish = "bash recipe/publish.sh"
 
 [feature.gui.dependencies]
 pyside6 = ">=6.7"
 
 [feature.gui.tasks]
 # File -> Open GUI: asks every files.list provider on the hub and lists the answers.
-files-demo = { cmd = "dbus-run-session -- python examples/files/demo.py", depends-on = ["develop"] }
+files-demo = "dbus-run-session -- python examples/files/demo.py"
 
 [environments]
-gui = ["gui"]
+default = ["pkg"]
+gui = ["pkg", "gui"]
+build = ["build"]
