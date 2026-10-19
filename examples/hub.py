@@ -5,7 +5,7 @@ $AGENTBUS_SERVICES (comma-separated, default "weather,files") it asks the relay 
 default https://bsky.network) who provides it and makes each provider callable here, so
 procs.call("weather.current", place="Berlin") reaches a proc on Modal like a local one.
 AGENTBUS_TRUST (comma-separated DIDs) limits whose procs are used. The hub has its own rookery
-identity on $AGENTBUS_PDS (default the project's rookery, rookery.latha.org), enrolled on first start as
+identity on $AGENTBUS_PDS (default the project's rookery on Modal), enrolled on first start as
 $AGENTBUS_HANDLE (default "hub-" + a hash of this machine's id, so hubs on different machines
 don't collide), and signs every call with an atproto service JWT.
 
@@ -25,7 +25,7 @@ import agentbus
 from agentbus import relay, rookery, xrpc
 from urllib.parse import urlencode
 
-PDS = "https://rookery.latha.org"
+PDS = "https://codegod100--rookery-pds-web.us-east.modal.run"
 # Remote procs scale to zero on Modal; a cold start can take ~35 s, so wait past it.
 CALL_TIMEOUT = 60
 HANDLE_TTL = 600  # seconds a DID's handle is trusted before it is resolved again
