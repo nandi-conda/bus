@@ -1,4 +1,6 @@
-"""File -> Open: ask every files.list provider on the hub and list each answer as it arrives.
+"""File -> Open: ask every files.list provider on the hub and list each answer as it arrives, then
+read the chosen file with files.read from the provider that listed it and show it in the window:
+text in the editor, images in an image view.
 
 The hub is the installed one (`pixi run install-service`; D-Bus starts it on the first call) or
 any hub on this session bus. A hub that just started is still finding remote providers through
@@ -11,11 +13,12 @@ import time
 
 import agentbus
 from PySide6.QtCore import QObject, Qt, Signal, Slot
-from PySide6.QtGui import QAction, QBrush, QKeySequence
+from PySide6.QtGui import QAction, QBrush, QImage, QKeySequence, QPixmap
 from PySide6.QtWidgets import (QApplication, QDialog, QDialogButtonBox, QLabel, QMainWindow,
-                               QPlainTextEdit, QTreeWidget, QTreeWidgetItem, QVBoxLayout)
+                               QPlainTextEdit, QScrollArea, QStackedWidget, QTreeWidget,
+                               QTreeWidgetItem, QVBoxLayout)
 
-from common import FUNCTION
+from common import FUNCTION, READ, content_bytes
 
 WAIT = 30  # seconds to keep looking for providers, as examples/app.py does
 CALL_TIMEOUT = 90  # past a remote proc's cold start on Modal, as examples/app.py allows
@@ -29,6 +32,13 @@ class Replies(QObject):
     failed = Signal(str, str)  # owner, error
     hub_missing = Signal(str)
     done_looking = Signal()
+
+
+class Reads(QObject):
+    """Carries a files.read answer (or its failure) to the GUI thread."""
+
+    read = Signal(object, object)  # the chosen file, answer (as objects: no QVariant round trip)
+    failed = Signal(object, str)  # the chosen file, error
 
 
 def human_size(n):
@@ -135,7 +145,8 @@ class OpenDialog(QDialog):
         for f in answer["files"]:
             item = QTreeWidgetItem(group, [f["name"], answer["provider"], human_size(f.get("size"))])
             item.setToolTip(0, f["uri"])
-            item.setData(0, Qt.UserRole, f["uri"])
+            item.setData(0, Qt.UserRole, {"owner": owner, "provider": answer["provider"],
+                                          "name": f["name"], "uri": f["uri"]})
         group.setExpanded(len(answer["files"]) <= 10)
         self.files += len(answer["files"])
         self.answered += 1
@@ -190,29 +201,82 @@ class OpenDialog(QDialog):
 
     def selected(self):
         item = self.tree.currentItem()
-        return (item.text(1), item.data(0, Qt.UserRole)) if item and item.parent() else None
+        return item.data(0, Qt.UserRole) if item and item.parent() else None
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Bus Editor")
         self.resize(720, 480)
         self.procs = agentbus.Procs()
         self.editor = QPlainTextEdit()
+        self.editor.setReadOnly(True)  # no files.write yet, so nothing to save edits to
         self.editor.setPlaceholderText("File → Open lists files from every proc on the bus.")
-        self.setCentralWidget(self.editor)
+        self.image = QLabel(alignment=Qt.AlignCenter)
+        image_view = QScrollArea()
+        image_view.setWidget(self.image)
+        image_view.setWidgetResizable(True)
+        self.views = QStackedWidget()
+        self.views.addWidget(self.editor)
+        self.views.addWidget(image_view)
+        self.setCentralWidget(self.views)
+        self.reads = Reads()
+        self.reads.read.connect(self.show_file)
+        self.reads.failed.connect(self.read_failed)
+        self.opening = None  # the file being read; a later Open supersedes it
+        self.set_title(None)
         open_action = QAction("&Open…", self, shortcut=QKeySequence.Open, triggered=self.open_file)
         quit_action = QAction("&Quit", self, shortcut=QKeySequence.Quit, triggered=self.close)
         menu = self.menuBar().addMenu("&File")
         menu.addAction(open_action)
         menu.addAction(quit_action)
 
+    def set_title(self, chosen):
+        self.setWindowTitle(f"{chosen['name']} ({chosen['provider']}) — Bus Editor" if chosen
+                            else "Bus Editor")
+
     def open_file(self):
         dialog = OpenDialog(self)
-        if dialog.exec() and (choice := dialog.selected()):
-            provider, uri = choice
-            self.statusBar().showMessage(f"Chose {uri} from {provider}")
+        if dialog.exec() and (chosen := dialog.selected()):
+            self.read(chosen)
+
+    def read(self, chosen):
+        """Ask the provider that listed the file for its contents, off the GUI thread."""
+        self.opening = chosen
+        self.statusBar().showMessage(f"Opening {chosen['name']} from {chosen['provider']}…")
+        threading.Thread(target=self.fetch, args=(chosen,), daemon=True).start()
+
+    def fetch(self, chosen):
+        try:
+            answer = self.procs.call(READ, timeout=CALL_TIMEOUT, provider=chosen["owner"],
+                                     file=chosen["name"])
+        except Exception as e:  # shown in the status bar: the user picked this file
+            return self.reads.failed.emit(chosen, error_text(e))
+        self.reads.read.emit(chosen, answer)
+
+    @Slot(object, object)
+    def show_file(self, chosen, answer):
+        if chosen is not self.opening:
+            return
+        data = content_bytes(answer)
+        image = QImage.fromData(data) if answer["mime"].startswith("image/") else QImage()
+        if not image.isNull():
+            self.image.setPixmap(QPixmap.fromImage(image))
+            self.views.setCurrentIndex(1)
+        elif answer["encoding"] == "utf-8":
+            self.editor.setPlainText(answer["content"])
+            self.views.setCurrentIndex(0)
+        else:
+            self.statusBar().showMessage(
+                f"Can't show {chosen['name']}: {answer['mime']}, {human_size(answer['size'])} of binary data")
+            return
+        self.set_title(chosen)
+        self.statusBar().showMessage(f"{chosen['uri']} · {answer['mime']} · {human_size(answer['size'])}")
+
+    @Slot(object, str)
+    def read_failed(self, chosen, message):
+        if chosen is self.opening:
+            self.statusBar().showMessage(f"Couldn't open {chosen['name']} from {chosen['provider']}: {message}")
 
 
 def main():

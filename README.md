@@ -67,7 +67,10 @@ A `Call` option `provider` (a unique name from `Providers`) asks just that provi
 failover, so an app can fan out to every provider of a function. `examples/files/` does this for
 File → Open: file procs provide `files.list` (args: optional `path` prefix; result:
 `{provider, files: [{name, uri, size, mtime, mime}]}`) and the dialog calls each provider on its
-own thread, listing every answer as it arrives.
+own thread, listing every answer as it arrives. Opening a file calls `files.read` (args: `file`, a
+name from the list; result: `{name, mime, size, encoding, content}`, `encoding` `utf-8` or `base64`,
+at most 1 MiB) on the provider that listed it, and the window shows text in the editor and images in
+an image view.
 
 ## Public procs
 
@@ -113,7 +116,7 @@ the `#atproto` key in their DID document (`AGENTBUS_TRUST` narrows to a DID list
 identity a proc serves anyone and writes no record, so nothing discovers it.
 
 `examples/files/service.py` (`pixi run -e files-service files-service`) is the file proc as such
-a service: `org.latha.agentbus.files.list` lists an S3 bucket (`AGENTBUS_FILES_S3`,
+a service: `org.latha.agentbus.files.list` and `.read` serve an S3 bucket (`AGENTBUS_FILES_S3`,
 `AGENTBUS_FILES_BUCKET`, default `agentbus-files`, the project's MinIO on Modal), so File -> Open
 shows those files next to local ones.
 

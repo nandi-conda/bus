@@ -1,32 +1,29 @@
-"""A file proc: provides files.list on the hub.
+"""A file proc: provides files.list and files.read on the hub.
 
     python provider.py dir NAME PATH     the files under PATH
     python provider.py bot NAME          files a bot wrote, answered a little later
 """
 
-import mimetypes
 import os
 import sys
 import time
 
 import agentbus
 
-from common import FUNCTION, SCHEMA
+from common import FUNCTION, READ, READ_SCHEMA, SCHEMA, check_name, check_size, file_content, mime_of
 
-BOT_FILES = [
-    ("drafts/release-notes-0.2.md", 2140),
-    ("plans/kv-store-design.md", 5310),
-    ("reports/test-failures-2026-10-18.txt", 880),
-]
+BOT_FILES = {
+    "drafts/release-notes-0.2.md": "# agentbus 0.2\n\n- File -> Open reads files from every proc.\n",
+    "plans/kv-store-design.md": "# KV store\n\nOne proc per store; get/put as bus functions.\n",
+    "reports/test-failures-2026-10-18.txt": "All 12 tests passed after the retry fix.\n",
+}
 
 
 def entry(name, uri, size, mtime):
-    return {"name": name, "uri": uri, "size": size, "mtime": mtime,
-            "mime": mimetypes.guess_type(name)[0] or "application/octet-stream"}
+    return {"name": name, "uri": uri, "size": size, "mtime": mtime, "mime": mime_of(name)}
 
 
 def walk(root):
-    root = os.path.abspath(root)
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = sorted(d for d in dirnames if not d.startswith(".") and d != "__pycache__")
         for f in sorted(filenames):
@@ -35,17 +32,34 @@ def walk(root):
             yield entry(os.path.relpath(full, root), "file://" + full, st.st_size, int(st.st_mtime))
 
 
+def read_under(root, name):
+    """The bytes of ``name`` under ``root``; a name reaching outside root is refused."""
+    path = os.path.realpath(os.path.join(root, check_name(name)))
+    if os.path.commonpath([root, path]) != root or not os.path.isfile(path):
+        raise ValueError(f"no file {name!r} here")
+    check_size(name, os.path.getsize(path))
+    with open(path, "rb") as f:
+        return f.read()
+
+
 def bot_files(name):
     now = int(time.time())
     time.sleep(0.8)
-    return [entry(f, f"bot://{name}/{f}", size, now) for f, size in BOT_FILES]
+    return [entry(f, f"bot://{name}/{f}", len(text.encode()), now) for f, text in BOT_FILES.items()]
+
+
+def bot_read(name):
+    if check_name(name) not in BOT_FILES:
+        raise ValueError(f"no file {name!r} here")
+    return BOT_FILES[name].encode()
 
 
 def main():
     if len(sys.argv) >= 4 and sys.argv[1] == "dir":
-        label, list_files = sys.argv[2], lambda: list(walk(sys.argv[3]))
+        root = os.path.realpath(sys.argv[3])
+        label, list_files, read = sys.argv[2], lambda: list(walk(root)), lambda n: read_under(root, n)
     elif len(sys.argv) >= 3 and sys.argv[1] == "bot":
-        label, list_files = sys.argv[2], lambda: bot_files(sys.argv[2])
+        label, list_files, read = sys.argv[2], lambda: bot_files(sys.argv[2]), bot_read
     else:
         sys.exit(__doc__)
 
@@ -57,7 +71,13 @@ def main():
         print(f"{label}: sent {len(files)} files", flush=True)
         return {"provider": label, "files": files}
 
-    print(f"{label}: providing {FUNCTION}", flush=True)
+    @procs.function(READ, READ_SCHEMA)
+    def files_read(file):
+        answer = file_content(file, read(file))
+        print(f"{label}: sent {file} ({answer['size']} bytes)", flush=True)
+        return answer
+
+    print(f"{label}: providing {FUNCTION}, {READ}", flush=True)
     procs.run_forever()
 
 

@@ -1,0 +1,76 @@
+{
+  "lexicon": 1,
+  "id": "org.latha.agentbus.files.read",
+  "description": "One file's contents, for File -> Open. Bus function files.read; ask the provider whose files.list named the file. Providers may require an atproto inter-service JWT (aud = provider DID, lxm = this NSID).",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "required": [
+          "file"
+        ],
+        "properties": {
+          "file": {
+            "type": "string",
+            "maxLength": 1024,
+            "description": "The file's name as files.list gave it, e.g. plans/design.md."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "name",
+            "mime",
+            "size",
+            "encoding",
+            "content"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "mime": {
+              "type": "string"
+            },
+            "size": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1048576,
+              "description": "Bytes. Files over 1 MiB are refused with InvalidRequest."
+            },
+            "encoding": {
+              "type": "string",
+              "knownValues": [
+                "utf-8",
+                "base64"
+              ],
+              "description": "utf-8: content is the file's text. base64: content is the file's bytes, base64-encoded."
+            },
+            "content": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "InvalidRequest",
+          "description": "No such file, or the file is too large."
+        },
+        {
+          "name": "AuthRequired"
+        },
+        {
+          "name": "InvalidToken"
+        },
+        {
+          "name": "Forbidden"
+        }
+      ]
+    }
+  }
+}

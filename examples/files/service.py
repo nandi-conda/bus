@@ -1,5 +1,5 @@
-"""The file proc as an HTTPS service: serves org.latha.agentbus.files.list over XRPC, listing the
-objects in an S3 bucket (the project's MinIO on Modal). This is what runs on Modal; hubs find it
+"""The file proc as an HTTPS service: serves org.latha.agentbus.files.list and .read over XRPC on
+the objects in an S3 bucket (the project's MinIO on Modal). This is what runs on Modal; hubs find it
 through the relay and File -> Open lists its files next to the local ones.
 
     AGENTBUS_FILES_S3       S3 endpoint, e.g. https://codegod100--minio-web.modal.run (required)
@@ -11,7 +11,6 @@ Identity works as in weather_service.py: with $AGENTBUS_PDS it enrolls as $AGENT
 (default "filebox"; rookery reserves "files"), writes its provider record (collection org.latha.agentbus.files, rkey self)
 naming $AGENTBUS_ENDPOINT, and only answers callers presenting a service JWT addressed to its DID."""
 
-import mimetypes
 import os
 import sys
 import threading
@@ -19,6 +18,9 @@ from urllib.parse import urlsplit
 
 from agentbus import rookery, xrpc
 from minio import Minio
+from minio.error import S3Error
+
+from common import MAX_READ, check_name, check_size, file_content, mime_of
 
 MAX_FILES = 1000  # files.list answers at most this many; narrow with path
 
@@ -52,8 +54,26 @@ def list_files(path=""):
             break
         out.append({"name": obj.object_name, "uri": f"s3://{bucket}/{obj.object_name}", "size": obj.size,
                     "mtime": int(obj.last_modified.timestamp()),
-                    "mime": mimetypes.guess_type(obj.object_name)[0] or "application/octet-stream"})
+                    "mime": mime_of(obj.object_name)})
     return {"provider": label, "files": out}
+
+
+@files.method("read")
+def read_file(file):
+    name = file
+    try:
+        check_size(name, s3.stat_object(bucket, check_name(name)).size)
+        resp = s3.get_object(bucket, name)
+    except S3Error as e:
+        if e.code in ("NoSuchKey", "NoSuchObject", "InvalidObjectName"):
+            raise ValueError(f"no file {name!r} here") from None
+        raise
+    try:
+        data = resp.read(MAX_READ + 1)  # an object that grew since stat is still refused
+    finally:
+        resp.close()
+        resp.release_conn()
+    return file_content(name, data)
 
 
 port = int(os.environ.get("PORT", "8000"))
