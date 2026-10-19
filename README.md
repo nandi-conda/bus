@@ -127,7 +127,8 @@ short string-only args go as query params, anything else (a file's content) as a
 object.
 
 Auth is atproto inter-service auth. The hub has its own rookery identity, enrolled on first
-start on `AGENTBUS_PDS` (default: the project's rookery on Modal), and gets a short-lived JWT for each call from its PDS (`com.atproto.server.getServiceAuth`, `aud`
+start on `AGENTBUS_PDS` (default: the project's rookery, https://rookery.latha.org; once enrolled it
+follows whatever PDS its DID document names), and gets a short-lived JWT for each call from its PDS (`com.atproto.server.getServiceAuth`, `aud`
 = the proc's DID, `lxm` = the method). A proc with an identity (`examples/weather_service.py`
 with `AGENTBUS_PDS` and `AGENTBUS_ENDPOINT`) answers only callers whose JWT checks out against
 the `#atproto` key in their DID document (`AGENTBUS_TRUST` narrows to a DID list). Without an

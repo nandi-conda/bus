@@ -25,6 +25,8 @@ from urllib.parse import urlencode, urlsplit
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
+from . import xrpc
+
 PROC_COLLECTION = "org.latha.agentbus.proc"
 STATE_DIR = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "agentbus/procs"
 
@@ -68,8 +70,11 @@ class Identity:
 
     @classmethod
     def load_or_enroll(cls, name: str, url: str, handle: str, invite: str | None = None) -> "Identity":
-        """The proc's identity, enrolling `handle` on first use. State lives in
+        """The proc's identity, enrolling `handle` on `url` on first use. State lives in
         $XDG_STATE_HOME/agentbus/procs/<name>/ (key.pem mode 0600, identity.json).
+
+        Once enrolled, the account's PDS is whatever its DID document names, so a proc
+        follows its account when rookery moves hosts; `url` only picks where to enroll.
 
         The key is saved before signing up, so a signup whose answer got lost (a timeout, a
         crash) is picked up on the next start through getSession instead of stranding the
@@ -79,9 +84,13 @@ class Identity:
         if id_file.exists():
             key = serialization.load_pem_private_key(key_file.read_bytes(), password=None)
             saved = json.loads(id_file.read_text())
-            if saved["pds"] != url.rstrip("/"):
-                raise RookeryError(0, "WrongPds", f"{name} is enrolled on {saved['pds']}, not {url}")
-            return cls(url, key, saved["did"], saved["handle"])
+            current = xrpc.pds_endpoint(xrpc.resolve_did(saved["did"]))
+            # Same origin means the same PDS, even when saved["pds"] is a local http:// URL.
+            if urlsplit(current).netloc != urlsplit(saved["pds"]).netloc:
+                print(f"{name}: {saved['did']} moved from {saved['pds']} to {current}", flush=True)
+                saved["pds"] = current
+                id_file.write_text(json.dumps(saved))
+            return cls(saved["pds"], key, saved["did"], saved["handle"])
 
         if key_file.exists():
             key = serialization.load_pem_private_key(key_file.read_bytes(), password=None)
@@ -114,8 +123,8 @@ class Identity:
 
     @classmethod
     def from_env(cls, name: str) -> "Identity":
-        """``load_or_enroll`` from $AGENTBUS_PDS, $AGENTBUS_HANDLE (default ``name``) and
-        $AGENTBUS_INVITE."""
+        """``load_or_enroll`` from $AGENTBUS_PDS (where to enroll), $AGENTBUS_HANDLE (default
+        ``name``) and $AGENTBUS_INVITE."""
         pds = os.environ.get("AGENTBUS_PDS")
         if not pds:
             raise RuntimeError(f"{name} needs AGENTBUS_PDS (e.g. https://rook.host) for its identity")
