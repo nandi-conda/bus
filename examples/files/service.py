@@ -8,7 +8,7 @@ through the relay and File -> Open lists its files next to the local ones.
     MINIO_ROOT_USER / MINIO_ROOT_PASSWORD   S3 access key / secret (Modal secret minio-root)
 
 Identity works as in weather_service.py: with $AGENTBUS_PDS it enrolls as $AGENTBUS_HANDLE
-(default "files"), writes its provider record (collection org.latha.agentbus.files, rkey self)
+(default "filebox"; rookery reserves "files"), writes its provider record (collection org.latha.agentbus.files, rkey self)
 naming $AGENTBUS_ENDPOINT, and only answers callers presenting a service JWT addressed to its DID."""
 
 import mimetypes
@@ -60,6 +60,7 @@ port = int(os.environ.get("PORT", "8000"))
 did = None
 if os.environ.get("AGENTBUS_PDS"):
     endpoint = env("AGENTBUS_ENDPOINT")
+    os.environ.setdefault("AGENTBUS_HANDLE", "filebox")
     ident = rookery.Identity.from_env("files")
     did = ident.did
 
