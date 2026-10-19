@@ -155,11 +155,25 @@ class MountTest(unittest.TestCase):
             os.rmdir(os.path.join(docs, "sub"))
             self.assertEqual(os.listdir(root), ["a.txt"])
 
+            # A change made beside the mount shows up once the listing is refreshed past TTL.
+            with open(os.path.join(root, "a.txt"), "w") as f:
+                f.write("changed elsewhere")
+            time.sleep(11)
+            deadline = time.monotonic() + 5
+            while read(os.path.join(docs, "a.txt")) != "changed elsewhere" and time.monotonic() < deadline:
+                time.sleep(0.2)
+            self.assertEqual(read(os.path.join(docs, "a.txt")), "changed elsewhere")
+
             notes = os.path.join(mnt, "bot:notes")
             self.assertTrue(read(os.path.join(notes, "plans", "kv-store-design.md")).startswith("# KV"))
-            with self.assertRaises(OSError) as e:
-                open(os.path.join(notes, "x.txt"), "w")
-            self.assertEqual(e.exception.errno, 30)  # EROFS
+            os.mkdir(os.path.join(notes, "drafts", "new"))
+            with open(os.path.join(notes, "drafts", "new", "x.txt"), "w") as f:
+                f.write("kept in the bot's memory")
+            os.rename(os.path.join(notes, "drafts", "new"), os.path.join(notes, "kept"))
+            self.assertEqual(read(os.path.join(notes, "kept", "x.txt")), "kept in the bot's memory")
+            os.remove(os.path.join(notes, "kept", "x.txt"))
+            os.rmdir(os.path.join(notes, "kept"))
+            self.assertNotIn("kept", os.listdir(notes))
         finally:
             subprocess.run([py, "mount.py", "--unmount", mnt], cwd=FILES)
             mount.wait(10)

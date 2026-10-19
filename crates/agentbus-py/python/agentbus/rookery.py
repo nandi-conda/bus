@@ -13,6 +13,7 @@ import base64
 import hashlib
 import json
 import os
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -51,6 +52,8 @@ class Identity:
         self.url = url.rstrip("/")
         self.origin = f"https://{urlsplit(self.url).netloc}"
         self.key, self.did, self.handle = key, did, handle
+        self._tokens = {}  # (aud, lxm) -> (exp, service JWT)
+        self._tokens_lock = threading.Lock()
         pub = key.public_key().public_numbers()
         self.jwk = {"kty": "RSA", "n": _uint(pub.n), "e": _uint(pub.e)}
         # RFC 7638: required members in lexicographic order, no whitespace.
@@ -119,12 +122,22 @@ class Identity:
         return cls.load_or_enroll(name, pds, os.environ.get("AGENTBUS_HANDLE", name),
                                   os.environ.get("AGENTBUS_INVITE"))
 
-    def service_auth(self, aud: str, lxm: str, ttl: int = 60) -> str:
-        """An atproto inter-service JWT from our PDS: we (``iss``) call method ``lxm`` on ``aud``."""
+    def service_auth(self, aud: str, lxm: str, ttl: int = 240, reuse_until: int = 60) -> str:
+        """An atproto inter-service JWT from our PDS: we (``iss``) call method ``lxm`` on ``aud``.
+        A token is reused until ``reuse_until`` seconds before it expires, so a burst of calls
+        costs one round trip to the PDS, not one each."""
+        with self._tokens_lock:
+            hit = self._tokens.get((aud, lxm))
+        if hit and hit[0] - time.time() > reuse_until:
+            return hit[1]
         path = "/xrpc/com.atproto.server.getServiceAuth"
-        query = urlencode({"aud": aud, "lxm": lxm, "exp": int(time.time()) + ttl})
+        exp = int(time.time()) + ttl
+        query = urlencode({"aud": aud, "lxm": lxm, "exp": exp})
         # RFC 9449: htu is the request URL without its query.
-        return self._request("GET", f"{path}?{query}", headers=self._auth("GET", path))["token"]
+        token = self._request("GET", f"{path}?{query}", headers=self._auth("GET", path))["token"]
+        with self._tokens_lock:
+            self._tokens[(aud, lxm)] = (exp, token)
+        return token
 
     def put_record(self, collection: str, rkey: str, record: dict) -> dict:
         return self.xrpc("com.atproto.repo.putRecord",

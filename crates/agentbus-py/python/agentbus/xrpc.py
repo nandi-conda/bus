@@ -22,8 +22,10 @@ and ``lxm`` = the method, sent as ``Authorization: Bearer <jwt>``. The proc chec
 ``#atproto`` key in the caller's DID document. A ``Service`` without a DID serves unauthenticated.
 """
 
+import http.client
 import json
 import os
+import ssl
 import sys
 import threading
 import time
@@ -237,6 +239,75 @@ class ServiceAuth:
 # ── Client ──────────────────────────────────────────────────────────────────
 
 
+class _Connections:
+    """Keep-alive HTTP(S) connections, a few idle ones per host, so back-to-back calls to one proc
+    skip the TCP and TLS handshakes. Honors $https_proxy / $no_proxy as urllib does."""
+
+    MAX_IDLE = 4
+    _RETRYABLE = (http.client.RemoteDisconnected, http.client.BadStatusLine, ConnectionResetError,
+                  BrokenPipeError)
+
+    def __init__(self):
+        self._idle = {}  # (scheme, host:port) -> [connection]
+        self._lock = threading.Lock()
+        self._tls = ssl.create_default_context()
+
+    def _new(self, parts, timeout):
+        https = parts.scheme == "https"
+        cls, extra = (http.client.HTTPSConnection, {"context": self._tls}) if https else (http.client.HTTPConnection, {})
+        port = parts.port or (443 if https else 80)
+        proxy = urllib.request.getproxies().get(parts.scheme)
+        if proxy and not urllib.request.proxy_bypass(parts.hostname):
+            p = urlsplit(proxy)
+            if p.scheme != "http":
+                raise XrpcError("UpstreamFailure", f"only http:// proxies are supported, not {proxy}")
+            conn = cls(p.hostname, p.port or 80, timeout=timeout, **extra)
+            conn.set_tunnel(parts.hostname, port)  # CONNECT, then TLS to the proc through it
+            return conn
+        return cls(parts.hostname, port, timeout=timeout, **extra)
+
+    def request(self, method, url, body, headers, timeout):
+        """(status, response bytes). A reused connection the server dropped while idle is retried
+        once on a fresh one; nothing was answered on it, so the call never ran twice."""
+        parts = urlsplit(url)
+        key = (parts.scheme, parts.netloc)
+        target = parts.path + (f"?{parts.query}" if parts.query else "")
+        with self._lock:
+            idle = self._idle.get(key)
+            conn = idle.pop() if idle else None
+        for reused in ((True, False) if conn else (False,)):
+            if not reused:
+                conn = self._new(parts, timeout)
+            elif conn.sock:
+                conn.sock.settimeout(timeout)
+            try:
+                conn.request(method, target, body=body, headers=headers)
+                resp = conn.getresponse()
+                data = resp.read()
+            except self._RETRYABLE:
+                conn.close()
+                if reused:
+                    continue
+                raise
+            except BaseException:
+                conn.close()
+                raise
+            if resp.will_close:
+                conn.close()
+            else:
+                with self._lock:
+                    idle = self._idle.setdefault(key, [])
+                    if len(idle) < self.MAX_IDLE:
+                        idle.append(conn)
+                        conn = None
+                if conn:
+                    conn.close()
+            return resp.status, data
+
+
+_connections = _Connections()
+
+
 def call(endpoint, function, args, token=None, timeout=CALL_TIMEOUT):
     """Call bus function ``function`` on the proc at ``endpoint``. Short string-only args go as a
     GET query, anything else as a POSTed JSON object. Returns the result dict or raises XrpcError."""
@@ -246,22 +317,24 @@ def call(endpoint, function, args, token=None, timeout=CALL_TIMEOUT):
         headers["Authorization"] = f"Bearer {token}"
     query = urlencode(args) if all(isinstance(v, str) for v in args.values()) else None
     if query is not None and len(query) <= MAX_QUERY:
-        req = urllib.request.Request(f"{url}?{query}" if query else url, headers=headers)
+        method, body = "GET", None
+        url = f"{url}?{query}" if query else url
     else:
-        req = urllib.request.Request(url, data=json.dumps(args).encode(), method="POST",
-                                     headers={**headers, "Content-Type": "application/json"})
+        method, body = "POST", json.dumps(args).encode()
+        headers["Content-Type"] = "application/json"
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            result = json.loads(resp.read())
-    except urllib.error.HTTPError as e:
+        status, data = _connections.request(method, url, body, headers, timeout)
+        result = json.loads(data) if status < 400 else None
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        raise XrpcError("UpstreamFailure", f"{url}: {e}") from None
+    if status >= 400:
         try:
-            err = json.loads(e.read())
+            err = json.loads(data)
         except ValueError:
             err = {}
-        raise XrpcError(err.get("error") or "UpstreamFailure", err.get("message") or str(e.reason),
-                        e.code) from None
-    except (urllib.error.URLError, TimeoutError, ValueError) as e:
-        raise XrpcError("UpstreamFailure", f"{url}: {e}") from None
+        if not isinstance(err, dict):
+            err = {}
+        raise XrpcError(err.get("error") or "UpstreamFailure", err.get("message") or f"HTTP {status}", status)
     if not isinstance(result, dict):
         raise XrpcError("UpstreamFailure", f"{url} returned {type(result).__name__}, not an object")
     return result

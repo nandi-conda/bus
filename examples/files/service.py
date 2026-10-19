@@ -100,14 +100,14 @@ def list_files(path=""):
 def read_file(file):
     name = file
     try:
-        check_size(name, s3.stat_object(bucket, check_name(name)).size)
-        resp = s3.get_object(bucket, name)
+        resp = s3.get_object(bucket, check_name(name))  # one round trip to S3: no stat first
     except S3Error as e:
         if e.code in MISSING:
             raise ValueError(f"no file {name!r} here") from None
         raise
     try:
-        data = resp.read(MAX_READ + 1)  # an object that grew since stat is still refused
+        check_size(name, int(resp.headers.get("Content-Length", 0)))
+        data = resp.read(MAX_READ + 1)
     finally:
         resp.close()
         resp.release_conn()
@@ -121,7 +121,8 @@ def write_file(file, encoding, content):
     if is_dir(file):
         raise ValueError(f"{file!r} is a folder")
     s3.put_object(bucket, file, io.BytesIO(data), len(data), content_type=mime_of(file))
-    return entry(s3.stat_object(bucket, file))
+    return {"name": file, "uri": f"s3://{bucket}/{file}", "size": len(data), "mtime": int(time.time()),
+            "mime": mime_of(file)}
 
 
 @files.method("delete")

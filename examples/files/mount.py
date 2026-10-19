@@ -9,10 +9,13 @@ that listed it; saving one calls files.write when it's closed, and rm, mkdir, rm
 files.delete, .mkdir, .rmdir and .rename. A provider that doesn't offer files.write is read-only
 (EROFS). Files are at most 1 MiB (EFBIG past that), as files.read and files.write allow.
 
-Listings are cached for TTL seconds, so a change made elsewhere shows up within that.
+Listings are cached: past TTL seconds one is refreshed in the background while the cached one
+answers, so a change made elsewhere shows up within about that. File contents are cached too,
+up to CACHE_BYTES per provider, and reused while the listing shows the same size and mtime.
 Needs libfuse3 (Arch: the fuse3 package), which mfusepy loads, and its fusermount3."""
 
 import argparse
+import collections
 import ctypes.util
 import errno
 import os
@@ -34,7 +37,8 @@ from mfusepy import FuseOSError
 from common import (DELETE, FUNCTION, MAX_READ, MKDIR, READ, RENAME, RMDIR, WRITE, content_bytes,
                     write_args)
 
-TTL = 10  # seconds a provider's listing is trusted
+TTL = 10  # seconds a provider's listing is trusted before a background refresh
+CACHE_BYTES = 64 << 20  # file contents kept per provider
 FIND_EVERY = 5  # seconds between looks for providers joining or leaving the hub
 CALL_TIMEOUT = 90  # past a remote proc's cold start on Modal, as the File -> Open GUI allows
 
@@ -63,21 +67,93 @@ def os_error(e):
     return FuseOSError(errno.EIO)
 
 
+def parents(name):
+    parts = name.split("/")[:-1]
+    return {"/".join(parts[:i]) for i in range(1, len(parts) + 1)}
+
+
 class Provider:
-    """One files.list provider: its hub owner, whether it manages files, and its cached listing."""
+    """One files.list provider: its hub owner, whether it manages files, its cached listing and
+    the file contents read or written through the mount. Every change made through the mount is
+    applied to the listing at once and bumps ``generation``, so a refresh that was already under
+    way (and can't have seen the change) is thrown away."""
 
     def __init__(self, owner, label, writable, answer):
         self.owner, self.label, self.writable = owner, label, writable
-        self.lock = threading.Lock()  # one listing refresh at a time
-        self.set_listing(answer)
+        self.lock = threading.Lock()  # guards the listing and the content cache
+        self.refreshing = False
+        self.generation = 0
+        self.content = collections.OrderedDict()  # name -> (size, mtime, bytes), oldest first
+        self.cached = 0
+        self.set_listing(answer, 0)
 
-    def set_listing(self, answer):
+    def set_listing(self, answer, generation):
+        """Take a listing fetched when ``generation`` was current; False if changes came since."""
+        if generation != self.generation:
+            return False
         self.files = {f["name"]: f for f in answer["files"]}
         self.dirs = set(answer.get("dirs", []))
         for name in self.files:
-            parts = name.split("/")[:-1]
-            self.dirs.update("/".join(parts[:i]) for i in range(1, len(parts) + 1))
+            self.dirs |= parents(name)
         self.fetched = time.monotonic()
+        return True
+
+    def changed(self):
+        self.generation += 1
+
+    def put(self, entry, data=None):
+        """A file written through the mount (``data`` its bytes, kept in the cache)."""
+        name = entry["name"]
+        self.files[name] = entry
+        self.dirs |= parents(name)
+        self.forget(name)
+        if data is not None:
+            self.remember(entry, data)
+        self.changed()
+
+    def remember(self, entry, data):
+        """Keep ``data``, the bytes of the file the listing ``entry`` describes."""
+        self.forget(entry["name"])
+        self.content[entry["name"]] = (entry.get("size"), entry.get("mtime"), bytes(data))
+        self.cached += len(data)
+        while self.cached > CACHE_BYTES:
+            self.cached -= len(self.content.popitem(last=False)[1][2])
+
+    def cached_content(self, name):
+        f, hit = self.files.get(name), self.content.get(name)
+        if f and hit and hit[:2] == (f.get("size"), f.get("mtime")):
+            self.content.move_to_end(name)
+            return hit[2]
+        return None
+
+    def forget(self, name):
+        hit = self.content.pop(name, None)
+        if hit:
+            self.cached -= len(hit[2])
+
+    def drop(self, name):
+        self.files.pop(name, None)
+        self.forget(name)
+        self.changed()
+
+    def move(self, old, new):
+        """A file or a whole folder renamed through the mount."""
+        if old in self.files:
+            entry = {**self.files.pop(old), "name": new}
+            hit = self.content.pop(old, None)
+            self.files[new] = entry
+            if hit:
+                self.content[new] = hit
+        else:
+            prefix = old + "/"
+            for name in [n for n in self.files if n.startswith(prefix)]:
+                self.files[new + name[len(old):]] = {**self.files.pop(name), "name": new + name[len(old):]}
+                hit = self.content.pop(name, None)
+                if hit:
+                    self.content[new + name[len(old):]] = hit
+            self.dirs = {new + d[len(old):] if d == old or d.startswith(prefix) else d for d in self.dirs}
+        self.dirs |= parents(new)
+        self.changed()
 
 
 class Handle:
@@ -153,11 +229,26 @@ class BusFiles(mfusepy.Operations):
         asking.discard(owner)
         log(f"{label}: {len(answer['files'])} files{'' if writable else ' (read-only)'}")
 
-    def listing(self, provider, fresh=False):
+    def listing(self, provider):
+        """The provider, its listing as cached. Past TTL a background refresh starts and the
+        cached listing answers meanwhile: a remote proc's listing takes a network round trip."""
         with provider.lock:
-            if fresh or time.monotonic() - provider.fetched > TTL:
-                provider.set_listing(self.call(provider, FUNCTION))
+            if provider.refreshing or time.monotonic() - provider.fetched <= TTL:
+                return provider
+            provider.refreshing = True
+            generation = provider.generation
+        threading.Thread(target=self.refresh, args=(provider, generation), daemon=True).start()
         return provider
+
+    def refresh(self, provider, generation):
+        try:
+            answer = self.call(provider, FUNCTION)
+        except FuseOSError:
+            answer = None  # call() logged it; keep the cached listing and try again past TTL
+        with provider.lock:
+            provider.refreshing = False
+            if answer is None or not provider.set_listing(answer, generation):
+                provider.fetched = time.monotonic() - TTL - 1 if answer else time.monotonic()
 
     def locate(self, path):
         """(provider, name within it) for a path; (None, "") is the root, (p, "") a provider."""
@@ -220,8 +311,11 @@ class BusFiles(mfusepy.Operations):
         if name and name not in provider.dirs:
             raise FuseOSError(errno.ENOTDIR if name in provider.files else errno.ENOENT)
         prefix = name + "/" if name else ""
-        children = {n[len(prefix):] for n in (*provider.files, *provider.dirs)
-                    if n.startswith(prefix) and "/" not in n[len(prefix):]}
+        with provider.lock:
+            names = (*provider.files, *provider.dirs)
+        with self.state:  # new files not yet written to the provider
+            names += tuple(h.name for h in self.handles.values() if h.provider is provider and h.dirty)
+        children = {n[len(prefix):] for n in names if n.startswith(prefix) and "/" not in n[len(prefix):]}
         return [".", "..", *sorted(children - {""})]
 
     def statfs(self, path):
@@ -244,20 +338,31 @@ class BusFiles(mfusepy.Operations):
         return handle
 
     def load(self, handle):
-        """The handle's bytes, fetched with files.read the first time. Call with handle.lock."""
+        """The handle's bytes: from the cache while the listing shows the same size and mtime,
+        else fetched with files.read. Call with handle.lock."""
         if handle.data is None:
-            f = handle.provider.files.get(handle.name)
-            if f and (f.get("size") or 0) > MAX_READ:
-                raise FuseOSError(errno.EFBIG)
-            handle.data = bytearray(content_bytes(self.call(handle.provider, READ, file=handle.name)))
+            provider, name = handle.provider, handle.name
+            with provider.lock:
+                data = provider.cached_content(name)
+                f = provider.files.get(name)
+            if data is None:
+                if f and (f.get("size") or 0) > MAX_READ:
+                    raise FuseOSError(errno.EFBIG)
+                data = content_bytes(self.call(provider, READ, file=name))
+                with provider.lock:
+                    if f and provider.files.get(name) is f and f.get("size") == len(data):
+                        provider.remember(f, data)
+            handle.data = bytearray(data)
         return handle.data
 
     def push(self, handle):
         """Write a changed handle back with files.write. Call with handle.lock."""
         if not handle.dirty:
             return
-        f = self.call(handle.provider, WRITE, file=handle.name, **write_args(bytes(handle.data)))
-        handle.provider.files[handle.name] = f
+        data = bytes(handle.data)
+        f = self.call(handle.provider, WRITE, file=handle.name, **write_args(data))
+        with handle.provider.lock:
+            handle.provider.put(f, data)
         handle.dirty = False
 
     def open(self, path, flags):
@@ -276,12 +381,12 @@ class BusFiles(mfusepy.Operations):
 
     def create(self, path, mode, fi=None):
         provider, name = self.writable(path)
-        handle = Handle(provider, name, bytearray(), dirty=True)
-        with handle.lock:
-            self.push(handle)  # exists on the provider from now on, as a new file should
-        for i in range(1, len(name.split("/"))):
-            provider.dirs.add("/".join(name.split("/")[:i]))
-        return self.new_handle(handle)
+        # Written to the provider on flush; listed here at once, as a new file should be.
+        with provider.lock:
+            if name in provider.dirs:
+                raise FuseOSError(errno.EISDIR)
+            provider.put({"name": name, "uri": "", "size": 0, "mtime": int(time.time())})
+        return self.new_handle(Handle(provider, name, bytearray(), dirty=True))
 
     def read(self, path, size, offset, fh):
         handle = self.handle(fh)
@@ -338,19 +443,24 @@ class BusFiles(mfusepy.Operations):
     def unlink(self, path):
         provider, name = self.writable(path)
         self.call(provider, DELETE, file=name)
-        provider.files.pop(name, None)
+        with provider.lock:
+            provider.drop(name)
         return 0
 
     def mkdir(self, path, mode):
         provider, name = self.writable(path)
         self.call(provider, MKDIR, dir=name)
-        provider.dirs.add(name)
+        with provider.lock:
+            provider.dirs |= {name} | parents(name)
+            provider.changed()
         return 0
 
     def rmdir(self, path):
         provider, name = self.writable(path)
         self.call(provider, RMDIR, dir=name)
-        provider.dirs.discard(name)
+        with provider.lock:
+            provider.dirs.discard(name)
+            provider.changed()
         return 0
 
     def rename(self, old, new):
@@ -359,7 +469,8 @@ class BusFiles(mfusepy.Operations):
         if to_provider is not provider:
             raise FuseOSError(errno.EXDEV)  # mv falls back to copy + delete across providers
         self.call(provider, RENAME, file=name, to=to)
-        self.listing(provider, fresh=True)
+        with provider.lock:
+            provider.move(name, to)
         return 0
 
     # Providers keep no modes, owners or times of their own; accept what tools set (cp -p, editors).

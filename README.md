@@ -75,7 +75,7 @@ an image view.
 A provider that manages its files also provides `files.write` (`file`, `encoding`, `content`, as
 `files.read` returns them), `files.delete` (`file`), `files.mkdir` and `files.rmdir` (`dir`) and
 `files.rename` (`file`, `to`); `files.list` then also answers `dirs`, empty folders included. The
-directory proc and the S3 service do; the bot proc stays read-only.
+directory proc and the S3 service do, and the bot proc keeps its files in memory.
 
 `pixi run mount` (`examples/files/mount.py`) mounts all of them as a normal folder over FUSE:
 `~/agentbus/<provider>/`, e.g. `~/agentbus/cloud/` for the S3 bucket on Modal. Reads call

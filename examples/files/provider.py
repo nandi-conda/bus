@@ -2,11 +2,13 @@
 
     python provider.py dir NAME PATH     the files under PATH, which it also manages (files.write,
                                          .delete, .mkdir, .rmdir, .rename)
-    python provider.py bot NAME          files a bot wrote, answered a little later (read-only)
+    python provider.py bot NAME          files a bot wrote, answered a little later; it manages
+                                         them too, in memory, so they last as long as the proc
 """
 
 import os
 import sys
+import threading
 import time
 
 import agentbus
@@ -127,16 +129,116 @@ def manage(procs, label, root):
         return done(to, f"renamed {file} to")
 
 
-def bot_files(name):
-    now = int(time.time())
-    time.sleep(0.8)
-    return [entry(f, f"bot://{name}/{f}", len(text.encode()), now) for f, text in BOT_FILES.items()]
+class Bot:
+    """A bot's files, kept in memory: name -> (bytes, mtime), plus its empty folders."""
+
+    def __init__(self, label):
+        now = int(time.time())
+        self.label = label
+        self.files = {f: (text.encode(), now) for f, text in BOT_FILES.items()}
+        self.empty_dirs = set()
+        self.lock = threading.Lock()
+
+    def entry(self, name):
+        data, mtime = self.files[name]
+        return entry(name, f"bot://{self.label}/{name}", len(data), mtime)
+
+    def dirs(self):
+        out = set(self.empty_dirs)
+        for name in self.files:
+            parts = name.split("/")[:-1]
+            out.update("/".join(parts[:i]) for i in range(1, len(parts) + 1))
+        return out
+
+    def list(self):
+        time.sleep(0.8)  # a bot answers a little later than the disk
+        with self.lock:
+            return [self.entry(f) for f in sorted(self.files)], sorted(self.dirs())
+
+    def read(self, name):
+        with self.lock:
+            if check_name(name) not in self.files:
+                raise ValueError(f"no file {name!r} here")
+            return self.files[name][0]
+
+    def write(self, name, data):
+        with self.lock:
+            if check_path(name) in self.dirs():
+                raise ValueError(f"{name!r} is a folder")
+            self.files[name] = (data, int(time.time()))
+            return self.entry(name)
+
+    def delete(self, name):
+        with self.lock:
+            if self.files.pop(check_path(name), None) is None:
+                raise ValueError(f"no file {name!r} here")
+
+    def mkdir(self, name):
+        with self.lock:
+            if check_path(name) in self.files or name in self.dirs():
+                raise ValueError(f"{name!r} already exists")
+            self.empty_dirs.add(name)
+
+    def rmdir(self, name):
+        with self.lock:
+            if check_path(name) not in self.dirs():
+                raise ValueError(f"no folder {name!r} here")
+            if any(n.startswith(name + "/") for n in (*self.files, *self.dirs())):
+                raise ValueError(f"folder {name!r} is not empty")
+            self.empty_dirs.discard(name)
+
+    def rename(self, old, new):
+        with self.lock:
+            check_path(old), check_path(new)
+            if new in self.dirs():
+                raise ValueError(f"{new!r} is a folder")
+            if old in self.files:
+                self.files[new] = self.files.pop(old)
+                return
+            if old not in self.dirs():
+                raise ValueError(f"no file {old!r} here")
+            if (new + "/").startswith(old + "/"):
+                raise ValueError(f"can't move {old!r} into itself")
+            if new in self.files:
+                raise ValueError(f"{new!r} is a file")
+            moved = lambda n: new + n[len(old):] if n == old or n.startswith(old + "/") else n
+            self.files = {moved(n): v for n, v in self.files.items()}
+            self.empty_dirs = {moved(d) for d in self.empty_dirs}
 
 
-def bot_read(name):
-    if check_name(name) not in BOT_FILES:
-        raise ValueError(f"no file {name!r} here")
-    return BOT_FILES[name].encode()
+def manage_bot(procs, bot):
+    """files.write, .delete, .mkdir, .rmdir and .rename on a bot's in-memory files."""
+
+    def done(name, what):
+        print(f"{bot.label}: {what} {name}", flush=True)
+        return {"name": name}
+
+    @procs.function(WRITE, MANAGE_SCHEMAS[WRITE])
+    def files_write(file, encoding, content):
+        data = content_bytes({"encoding": encoding, "content": content})
+        check_size(file, len(data))
+        print(f"{bot.label}: wrote {file} ({len(data)} bytes)", flush=True)
+        return bot.write(file, data)
+
+    @procs.function(DELETE, MANAGE_SCHEMAS[DELETE])
+    def files_delete(file):
+        bot.delete(file)
+        return done(file, "deleted")
+
+    @procs.function(MKDIR, MANAGE_SCHEMAS[MKDIR])
+    def files_mkdir(dir):
+        bot.mkdir(dir)
+        return done(dir, "made folder")
+
+    @procs.function(RMDIR, MANAGE_SCHEMAS[RMDIR])
+    def files_rmdir(dir):
+        bot.rmdir(dir)
+        return done(dir, "removed folder")
+
+    @procs.function(RENAME, MANAGE_SCHEMAS[RENAME])
+    def files_rename(file, to):
+        bot.rename(file, to)
+        return done(to, f"renamed {file} to")
 
 
 def main():
@@ -144,8 +246,8 @@ def main():
         root = os.path.realpath(sys.argv[3])
         label, list_files, read = sys.argv[2], lambda: walk(root), lambda n: read_under(root, n)
     elif len(sys.argv) >= 3 and sys.argv[1] == "bot":
-        root = None
-        label, list_files, read = sys.argv[2], lambda: (bot_files(sys.argv[2]), []), bot_read
+        root, bot = None, Bot(sys.argv[2])
+        label, list_files, read = sys.argv[2], bot.list, bot.read
     else:
         sys.exit(__doc__)
 
@@ -166,6 +268,8 @@ def main():
 
     if root:
         manage(procs, label, root)
+    else:
+        manage_bot(procs, bot)
     print(f"{label}: providing {', '.join(procs._provides)}", flush=True)
     procs.run_forever()
 
