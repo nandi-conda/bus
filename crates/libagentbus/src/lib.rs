@@ -4,6 +4,8 @@
 //! [`submit`] a [`TaskSpec`] and get back a [`RemoteTask`] that streams `org.agentbus.Task1`
 //! signals (progress, questions, logs, finished). A [`router`] owns a capability slot such as
 //! `org.agentbus.cap.Plan1` and forwards each task to one of the agents registered with it.
+//! [`topics`] is the app-domain side: apps subscribe to topics like `weather.current` on a hub,
+//! and whichever service publishes them feeds the subscribers.
 
 mod agent;
 mod client;
@@ -11,6 +13,7 @@ pub mod demo;
 mod error;
 pub mod router;
 mod task;
+pub mod topics;
 mod value;
 
 pub use agent::{Agent, Handler, handler};

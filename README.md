@@ -10,6 +10,7 @@ slot router.
 | Rust core (`agentbus` crate: `Agent`, `submit`, `TaskContext`, `router`) | `crates/libagentbus` |
 | Python bindings (PyO3, built with maturin) | `crates/agentbus-py` |
 | Rust examples: `greeter`, `router`, `agent`, `sender` | `crates/libagentbus/examples` |
+| App-domain topics (`agentbus::topics`) and examples `topics_hub`, `weather_source`, `watch` | `crates/libagentbus/src/topics.rs`, `examples` |
 | Python examples: `submit_task.py`, `agent.py` | `examples/` |
 
 ## D-Bus surface
@@ -23,6 +24,15 @@ slot router.
   caller; each task submitted to the slot goes round-robin to a live member, and the router's own
   task mirrors the member's signals and relays answers and cancels.
 
+- `dev.agentbus.Topics1` on `dev.agentbus.Topics` at `/dev/agentbus/Topics`: app-domain
+  subscriptions, independent of agents and tasks. `Subscribe(s pattern, s subject) -> o`
+  (pattern `weather.current`, `weather.*` or `*`; subject `Berlin`, or `""` for any) creates a
+  `dev.agentbus.Subscription1` object whose `Event(s topic, s subject, a{sv} payload, t seq)`
+  signals go to the subscriber only, starting with the retained current values. `Publish(s topic,
+  s subject, a{sv} payload) -> u` fans out and retains. `Demand() -> a(ssu)` and the
+  `DemandChanged(s, s, u)` signal let a publisher produce only what someone watches.
+  Subscriptions end on `Unsubscribe()` or when the subscriber leaves the bus.
+
 States follow A2A: `submitted`, `working`, `input-required`, `completed`, `failed`,
 `rejected`, `canceled`.
 
@@ -33,6 +43,7 @@ pixi run test           # Rust + Python tests on a private bus (dbus-run-session
 pixi run demo           # router + Rust agent + Rust sender
 pixi run py-demo        # router + Rust agent, Python submits the task
 pixi run py-agent-demo  # router + Python agent, Rust sender
+pixi run topics-demo    # topics hub + weather source + an app watching Berlin
 pixi run develop        # build the Python module into the pixi env
 ```
 
