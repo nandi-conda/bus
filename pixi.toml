@@ -27,7 +27,8 @@ weather-service = "python examples/weather_service.py"
 demo = "dbus-run-session -- python examples/procs_demo.py"
 # A file proc for File -> Open on this machine's hub: files-provider dir NAME PATH.
 files-provider = "python examples/files/provider.py"
-# Every file provider on the hub as a folder (FUSE; needs the system's fuse3): ~/agentbus/<provider>/.
+# Every file provider on the hub as a folder (FUSE; needs the system's fuse3): ~/agentbus/<handle>/ for
+# remote procs (e.g. filebox.agent.latha.org), ~/agentbus/<label>/ for local ones.
 mount = "python examples/files/mount.py"
 unmount = "python examples/files/mount.py --unmount"
 # The same mount as a systemd user unit, mounted from login on.

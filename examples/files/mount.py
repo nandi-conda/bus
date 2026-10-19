@@ -3,8 +3,10 @@
     python mount.py [MOUNTPOINT]          mount (default ~/agentbus) and serve until Ctrl-C
     python mount.py --unmount [MOUNTPOINT]
 
-Every files.list provider on the hub, local procs and the remote ones the hub found through the
-relay alike, shows up as ``MOUNTPOINT/<provider>/``. Reading a file calls files.read on the provider
+Every files.list provider on the hub shows up as a folder: a remote proc the hub found through the
+relay as ``MOUNTPOINT/<handle>/`` (e.g. filebox.agent.latha.org, as hub.remotes confirms it from
+the proc's DID; the DID itself when it has no confirmed handle), a local proc under the label its
+listing gives (``MOUNTPOINT/<label>/``, with "-2" and on for local labels already taken). Reading a file calls files.read on the provider
 that listed it; saving one calls files.write when it's closed, and rm, mkdir, rmdir and mv call
 files.delete, .mkdir, .rmdir and .rename. A provider that doesn't offer files.write is read-only
 (EROFS). Files are at most 1 MiB (EFBIG past that), as files.read and files.write allow.
@@ -40,6 +42,7 @@ from common import (DELETE, FUNCTION, MAX_READ, MKDIR, READ, RENAME, RMDIR, WRIT
 TTL = 10  # seconds a provider's listing is trusted before a background refresh
 CACHE_BYTES = 64 << 20  # file contents kept per provider
 FIND_EVERY = 5  # seconds between looks for providers joining or leaving the hub
+REMOTES = "hub.remotes"  # who each remote provider is (examples/hub.py)
 CALL_TIMEOUT = 90  # past a remote proc's cold start on Modal, as the File -> Open GUI allows
 
 
@@ -78,8 +81,8 @@ class Provider:
     applied to the listing at once and bumps ``generation``, so a refresh that was already under
     way (and can't have seen the change) is thrown away."""
 
-    def __init__(self, owner, label, writable, answer):
-        self.owner, self.label, self.writable = owner, label, writable
+    def __init__(self, owner, base, label, writable, answer):
+        self.owner, self.base, self.label, self.writable = owner, base, label, writable
         self.lock = threading.Lock()  # guards the listing and the content cache
         self.refreshing = False
         self.generation = 0
@@ -171,6 +174,7 @@ class BusFiles(mfusepy.Operations):
         self.procs = procs
         self.state = threading.Lock()  # guards providers and handles (``lock`` is a FUSE op)
         self.providers = {}  # label -> Provider
+        self.remotes = {}  # owner -> folder name, for the remote providers hub.remotes names
         self.handles = {}  # fh -> Handle
         self.next_fh = 1
         self.uid, self.gid = os.getuid(), os.getgid()
@@ -187,29 +191,56 @@ class BusFiles(mfusepy.Operations):
 
     def find(self):
         """Follow the hub: add each provider as it appears (asking it for its listing, which also
-        names it) and drop the ones that leave."""
+        names a local one) and drop the ones that leave."""
         asking = set()
         while True:
             try:
                 owners = {o for o, _ in self.procs.providers(FUNCTION)}
                 writers = {o for o, _ in self.procs.providers(WRITE)}
+                remotes = self.find_remotes()
             except agentbus.BusError as e:
                 log(f"can't ask the hub for providers: {e}")
-                owners, writers = None, set()
+                owners, writers, remotes = None, set(), {}
             if owners is not None:
                 with self.state:
+                    self.remotes = remotes
                     for label, p in list(self.providers.items()):
                         if p.owner not in owners:
                             log(f"{label} left")
                             del self.providers[label]
                         else:
                             p.writable = p.owner in writers
+                    for p in list(self.providers.values()):
+                        if p.owner in remotes and remotes[p.owner] != p.base:
+                            del self.providers[p.label]  # a remote first seen before the hub named it
+                            self.name_provider(p, remotes[p.owner])
                     known = {p.owner for p in self.providers.values()} | asking
                 for owner in owners - known:
                     asking.add(owner)
                     threading.Thread(target=self.add, args=(owner, owner in writers, asking),
                                      daemon=True).start()
             time.sleep(FIND_EVERY)
+
+    def find_remotes(self):
+        """{owner: folder name} of the remote providers: the handle hub.remotes confirmed from
+        each one's DID, else the DID. A hub without hub.remotes has none."""
+        try:
+            answer = self.procs.call(REMOTES, timeout=CALL_TIMEOUT)
+        except agentbus.NoProvider:
+            return {}
+        return {r["owner"]: r.get("handle") or r["did"] for r in answer["remotes"]}
+
+    def name_provider(self, provider, base):
+        """File ``provider`` under ``base``, or base-2 and on if a provider has it. Call with
+        ``state``."""
+        label, n = base, 1
+        while label in self.providers:
+            n += 1
+            label = f"{base}-{n}"
+        if provider.label and provider.label != label:
+            log(f"{provider.label} is now {label}")
+        provider.base, provider.label = base, label
+        self.providers[label] = provider
 
     def add(self, owner, writable, asking):
         try:
@@ -219,15 +250,12 @@ class BusFiles(mfusepy.Operations):
             time.sleep(30)  # then find() asks it again
             asking.discard(owner)
             return
-        base = answer["provider"].replace("/", "-") or owner
         with self.state:
-            label, n = base, 1
-            while label in self.providers:
-                n += 1
-                label = f"{base}-{n}"
-            self.providers[label] = Provider(owner, label, writable, answer)
+            base = self.remotes.get(owner) or answer["provider"].replace("/", "-") or owner
+            provider = Provider(owner, base, "", writable, answer)
+            self.name_provider(provider, base)
         asking.discard(owner)
-        log(f"{label}: {len(answer['files'])} files{'' if writable else ' (read-only)'}")
+        log(f"{provider.label}: {len(answer['files'])} files{'' if writable else ' (read-only)'}")
 
     def listing(self, provider):
         """The provider, its listing as cached. Past TTL a background refresh starts and the

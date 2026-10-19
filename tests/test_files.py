@@ -131,13 +131,28 @@ class MountTest(unittest.TestCase):
             f.write("hello")
         py = sys.executable
         procs = [subprocess.Popen([py, "provider.py", "dir", "docs", root], cwd=FILES),
-                 subprocess.Popen([py, "provider.py", "bot", "bot:notes"], cwd=FILES)]
+                 subprocess.Popen([py, "provider.py", "bot", "bot:notes"], cwd=FILES),
+                 subprocess.Popen([py, "provider.py", "dir", "docs", root], cwd=FILES)]
+        # Stand in for the hub's relay discovery: the bot and the second "docs" are remote procs,
+        # one with a confirmed handle and one without.
+        app = agentbus.Procs()
+        deadline = time.monotonic() + 15
+        while len(app.providers("files.list")) < 3 and time.monotonic() < deadline:
+            time.sleep(0.2)
+        owners = {}
+        for owner, _ in app.providers("files.list"):
+            owners.setdefault(app.call("files.list", provider=owner)["provider"], []).append(owner)
+        remotes = [{"owner": owners["bot:notes"][0], "did": "did:plc:bot", "handle": "bot.example.org"},
+                   {"owner": owners["docs"][1], "did": "did:plc:nohandle"}]
+        identities = agentbus.Procs()
+        identities.provide("hub.remotes", lambda args, info: {"remotes": remotes})
         mount = subprocess.Popen([py, "mount.py", mnt], cwd=FILES)
+        folders = ["bot.example.org", "did:plc:nohandle", "docs"]
         try:
             deadline = time.monotonic() + 15
-            while sorted(os.listdir(mnt)) != ["bot:notes", "docs"] and time.monotonic() < deadline:
+            while sorted(os.listdir(mnt)) != folders and time.monotonic() < deadline:
                 time.sleep(0.2)
-            self.assertEqual(sorted(os.listdir(mnt)), ["bot:notes", "docs"])
+            self.assertEqual(sorted(os.listdir(mnt)), folders)
             docs = os.path.join(mnt, "docs")
             self.assertEqual(read(os.path.join(docs, "a.txt")), "hello")
 
@@ -165,7 +180,7 @@ class MountTest(unittest.TestCase):
                 time.sleep(0.2)
             self.assertEqual(read(os.path.join(docs, "a.txt")), "changed elsewhere")
 
-            notes = os.path.join(mnt, "bot:notes")
+            notes = os.path.join(mnt, "bot.example.org")
             self.assertTrue(read(os.path.join(notes, "plans", "kv-store-design.md")).startswith("# KV"))
             os.mkdir(os.path.join(notes, "drafts", "new"))
             with open(os.path.join(notes, "drafts", "new", "x.txt"), "w") as f:

@@ -78,7 +78,11 @@ A provider that manages its files also provides `files.write` (`file`, `encoding
 directory proc and the files service do, and the bot proc keeps its files in memory.
 
 `pixi run mount` (`examples/files/mount.py`) mounts all of them as a normal folder over FUSE:
-`~/agentbus/<provider>/`, e.g. `~/agentbus/cloud/` for the files service on Modal. Reads call
+one folder per provider. A remote proc's folder is its handle, e.g.
+`~/agentbus/filebox.agent.latha.org/` for the files service on Modal: the hub's `hub.remotes`
+reads it from the proc's DID document and keeps it only if the DID's PDS resolves it back, and a
+remote without a confirmed (or with a shared) handle gets its DID as the folder name. Local procs
+keep the label their listing gives, e.g. `~/agentbus/home/`. Reads call
 `files.read`, saving a file calls `files.write` when it's closed, and `rm`, `mkdir`, `rmdir` and
 `mv` call the rest; a read-only provider answers EROFS and files over 1 MiB EFBIG. Listings are
 cached for 10 s. It loads the system's libfuse3 (Arch: `fuse3`) through mfusepy;
