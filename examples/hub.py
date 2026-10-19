@@ -17,6 +17,8 @@ import agentbus
 from agentbus import relay, rookery
 
 PDS = "https://codegod100--rookery-pds-web.us-east.modal.run"
+# Remote procs scale to zero on Modal; a cold start can take ~35 s, so wait past it.
+CALL_TIMEOUT = 60
 
 
 def env_list(name, default=""):
@@ -33,7 +35,8 @@ if services:
     os.environ.setdefault("AGENTBUS_HANDLE", f"hub-{machine}")
     identity = rookery.Identity.from_env("hub")
     discovery = relay.Discovery(services, relay=os.environ.get("AGENTBUS_RELAY", relay.DEFAULT_RELAY),
-                                trust=env_list("AGENTBUS_TRUST") or None, identity=identity).start()
+                                trust=env_list("AGENTBUS_TRUST") or None, identity=identity,
+                                call_timeout=CALL_TIMEOUT).start()
     print(f"hub: following {', '.join(discovery.services)} on {discovery.relay}, "
           f"calling as {identity.handle} ({identity.did})", flush=True)
 

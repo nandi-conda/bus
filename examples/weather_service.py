@@ -10,6 +10,7 @@ anyone, and nothing can discover it."""
 
 import os
 import sys
+import threading
 
 from agentbus import rookery, xrpc
 from weather_readings import reading
@@ -29,9 +30,14 @@ if os.environ.get("AGENTBUS_PDS"):
     if not endpoint:
         sys.exit("weather: AGENTBUS_ENDPOINT (this service's public https URL) is required with AGENTBUS_PDS")
     ident = rookery.Identity.from_env("weather")
-    ident.put_record(weather.nsid, "self", weather.record(endpoint))
     did = ident.did
-    print(f"weather: {ident.handle} ({did}) provides {weather.nsid} at {endpoint}", flush=True)
+
+    def publish():
+        # Off the startup path: a cold start answers its first call without waiting on the PDS.
+        ident.put_record(weather.nsid, "self", weather.record(endpoint))
+        print(f"weather: {ident.handle} ({did}) provides {weather.nsid} at {endpoint}", flush=True)
+
+    threading.Thread(target=publish, name="publish-record", daemon=True).start()
 else:
     print("weather: no AGENTBUS_PDS, serving without identity: open to anyone, not discoverable",
           flush=True)

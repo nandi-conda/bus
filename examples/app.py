@@ -13,6 +13,7 @@ parser.add_argument("--watch", nargs="?", type=int, const=0, metavar="EVENTS",
 args = parser.parse_args()
 
 procs = agentbus.Procs()
+# The provider may be a remote proc that scales to zero, hence the long call timeout.
 # A hub that just started is still finding remote providers through the relay; give it a moment.
 deadline = time.monotonic() + 30
 while not procs.providers("weather.current") and time.monotonic() < deadline:
