@@ -16,6 +16,8 @@ use pyo3::{
 };
 use serde_json::Value as Json;
 
+mod topics;
+
 create_exception!(
     agentbus,
     BusError,
@@ -337,6 +339,12 @@ fn agentbus_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Task>()?;
     m.add_class::<Agent>()?;
     m.add_class::<PyTaskContext>()?;
+    m.add_class::<topics::TopicsHub>()?;
+    m.add_class::<topics::Topics>()?;
+    m.add_class::<topics::PySubscription>()?;
+    m.add_class::<topics::PyDemandWatch>()?;
+    m.add_function(wrap_pyfunction!(topics::pattern_matches, m)?)?;
+    m.add("TOPICS_NAME", agentbus::topics::TOPICS_NAME)?;
     m.add("BusError", m.py().get_type::<BusError>())?;
     m.add("Rejected", m.py().get_type::<Rejected>())?;
     Ok(())

@@ -10,7 +10,8 @@ slot router.
 | Rust core (`agentbus` crate: `Agent`, `submit`, `TaskContext`, `router`) | `crates/libagentbus` |
 | Python bindings (PyO3, built with maturin) | `crates/agentbus-py` |
 | Rust examples: `greeter`, `router`, `agent`, `sender` | `crates/libagentbus/examples` |
-| App-domain topics (`agentbus::topics`) and examples `topics_hub`, `weather_source`, `watch` | `crates/libagentbus/src/topics.rs`, `examples` |
+| App-domain topics (`agentbus::topics`, Python `agentbus.Topics` / `TopicsHub`) | `crates/libagentbus/src/topics.rs`, `crates/agentbus-py/src/topics.rs` |
+| Python topic examples: `topics_hub.py`, `weather_source.py`, `watch.py` | `examples/` |
 | Python examples: `submit_task.py`, `agent.py` | `examples/` |
 
 ## D-Bus surface
@@ -55,6 +56,10 @@ for event in task:
     if event["type"] == "question":
         task.respond(event["id"], {"language": "python"})
 print(task.result())
+
+topics = agentbus.Topics()                       # app-domain subscriptions
+for event in topics.subscribe("weather.*", "Berlin"):
+    print(event["topic"], event["payload"])
 ```
 
 ## File → Open example
