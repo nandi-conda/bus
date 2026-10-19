@@ -56,6 +56,7 @@ def install():
         print(f"wrote {path}")
     systemctl("daemon-reload")
     systemctl("enable", UNIT)
+    systemctl("reset-failed", UNIT, check=False)  # clear a start-limit hit by earlier crashes
     systemctl("restart", UNIT)  # a hub already running picks up the new code
     print(f"{UNIT} enabled and (re)started")
 

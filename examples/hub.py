@@ -5,10 +5,13 @@ $AGENTBUS_SERVICES (comma-separated, default "weather") it asks the relay ($AGEN
 default https://bsky.network) who provides it and makes each provider callable here, so
 procs.call("weather.current", place="Berlin") reaches a proc on Modal like a local one.
 AGENTBUS_TRUST (comma-separated DIDs) limits whose procs are used. The hub has its own rookery
-identity on $AGENTBUS_PDS (default the project's rookery on Modal; handle $AGENTBUS_HANDLE,
-default "hub"), enrolled on first start, and signs every call with an atproto service JWT."""
+identity on $AGENTBUS_PDS (default the project's rookery on Modal), enrolled on first start as
+$AGENTBUS_HANDLE (default "hub-" + a hash of this machine's id, so hubs on different machines
+don't collide), and signs every call with an atproto service JWT."""
 
+import hashlib
 import os
+from pathlib import Path
 
 import agentbus
 from agentbus import relay, rookery
@@ -26,6 +29,8 @@ print(f"hub: serving {agentbus.HUB_NAME}", flush=True)
 services = env_list("AGENTBUS_SERVICES", "weather")
 if services:
     os.environ.setdefault("AGENTBUS_PDS", PDS)
+    machine = hashlib.sha256(Path("/etc/machine-id").read_bytes().strip()).hexdigest()[:8]
+    os.environ.setdefault("AGENTBUS_HANDLE", f"hub-{machine}")
     identity = rookery.Identity.from_env("hub")
     discovery = relay.Discovery(services, relay=os.environ.get("AGENTBUS_RELAY", relay.DEFAULT_RELAY),
                                 trust=env_list("AGENTBUS_TRUST") or None, identity=identity).start()

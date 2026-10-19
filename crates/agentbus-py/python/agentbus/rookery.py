@@ -66,24 +66,38 @@ class Identity:
     @classmethod
     def load_or_enroll(cls, name: str, url: str, handle: str, invite: str | None = None) -> "Identity":
         """The proc's identity, enrolling `handle` on first use. State lives in
-        $XDG_STATE_HOME/agentbus/procs/<name>/ (key.pem mode 0600, identity.json)."""
+        $XDG_STATE_HOME/agentbus/procs/<name>/ (key.pem mode 0600, identity.json).
+
+        The key is saved before signing up, so a signup whose answer got lost (a timeout, a
+        crash) is picked up on the next start through getSession instead of stranding the
+        handle on an account nobody holds the key to."""
         state = STATE_DIR / name
         key_file, id_file = state / "key.pem", state / "identity.json"
-        if key_file.exists():
+        if id_file.exists():
             key = serialization.load_pem_private_key(key_file.read_bytes(), password=None)
             saved = json.loads(id_file.read_text())
             if saved["pds"] != url.rstrip("/"):
                 raise RookeryError(0, "WrongPds", f"{name} is enrolled on {saved['pds']}, not {url}")
             return cls(url, key, saved["did"], saved["handle"])
 
-        key = rsa.generate_private_key(public_exponent=65537, key_size=4096)
+        if key_file.exists():
+            key = serialization.load_pem_private_key(key_file.read_bytes(), password=None)
+        else:
+            key = rsa.generate_private_key(public_exponent=65537, key_size=4096)
+            state.mkdir(parents=True, exist_ok=True)
+            fd = os.open(key_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "wb") as f:
+                f.write(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                          serialization.NoEncryption()))
         ident = cls(url, key)
-        ident._enroll(handle, invite)
-        state.mkdir(parents=True, exist_ok=True)
-        fd = os.open(key_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "wb") as f:
-            f.write(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
-                                      serialization.NoEncryption()))
+        try:
+            session = ident._request("GET", "/xrpc/com.atproto.server.getSession",
+                                     headers=ident._auth("GET", "/xrpc/com.atproto.server.getSession"))
+            ident.did, ident.handle = session["did"], session["handle"]
+        except RookeryError as e:
+            if e.code != "AccountNotFound":
+                raise
+            ident._enroll(handle, invite)
         id_file.write_text(json.dumps({"pds": ident.url, "did": ident.did, "handle": ident.handle}))
         return ident
 
@@ -110,10 +124,7 @@ class Identity:
         path = "/xrpc/com.atproto.server.getServiceAuth"
         query = urlencode({"aud": aud, "lxm": lxm, "exp": int(time.time()) + ttl})
         # RFC 9449: htu is the request URL without its query.
-        return self._request("GET", f"{path}?{query}", headers={
-            "Authorization": f"DPoP {self.access_token}",
-            "DPoP": self._proof("GET", path, ath=_b64(hashlib.sha256(self.access_token.encode()).digest())),
-        })["token"]
+        return self._request("GET", f"{path}?{query}", headers=self._auth("GET", path))["token"]
 
     def put_record(self, collection: str, rkey: str, record: dict) -> dict:
         return self.xrpc("com.atproto.repo.putRecord",
@@ -121,10 +132,14 @@ class Identity:
 
     def xrpc(self, method: str, body: dict) -> dict:
         path = f"/xrpc/{method}"
-        return self._request("POST", path, body, headers={
+        return self._request("POST", path, body, headers=self._auth("POST", path))
+
+    def _auth(self, method: str, path: str) -> dict:
+        """Headers for a DPoP-bound request; ``path`` without its query (RFC 9449 htu)."""
+        return {
             "Authorization": f"DPoP {self.access_token}",
-            "DPoP": self._proof("POST", path, ath=_b64(hashlib.sha256(self.access_token.encode()).digest())),
-        })
+            "DPoP": self._proof(method, path, ath=_b64(hashlib.sha256(self.access_token.encode()).digest())),
+        }
 
     def _sign(self, data: bytes) -> bytes:
         return self.key.sign(data, padding.PKCS1v15(), hashes.SHA256())
