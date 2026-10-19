@@ -25,7 +25,7 @@ import agentbus
 from agentbus import relay, rookery, xrpc
 from urllib.parse import urlencode
 
-PDS = "https://codegod100--rookery-pds-web.us-east.modal.run"
+PDS = "https://rookery.latha.org"
 # Remote procs scale to zero on Modal; a cold start can take ~35 s, so wait past it.
 CALL_TIMEOUT = 60
 HANDLE_TTL = 600  # seconds a DID's handle is trusted before it is resolved again
