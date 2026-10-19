@@ -11,6 +11,7 @@ platforms = ["linux-64", "linux-aarch64"]
 python = "3.13.*"
 dbus = "*"
 cryptography = ">=42"
+mfusepy = ">=3.1.1,<4"
 
 [tasks]
 hub = "python examples/hub.py"
@@ -26,6 +27,12 @@ weather-service = "python examples/weather_service.py"
 demo = "dbus-run-session -- python examples/procs_demo.py"
 # A file proc for File -> Open on this machine's hub: files-provider dir NAME PATH.
 files-provider = "python examples/files/provider.py"
+# Every file provider on the hub as a folder (FUSE; needs the system's fuse3): ~/agentbus/<provider>/.
+mount = "python examples/files/mount.py"
+unmount = "python examples/files/mount.py --unmount"
+# The same mount as a systemd user unit, mounted from login on.
+install-mount = "python tools/service.py install-mount"
+uninstall-mount = "python tools/service.py uninstall-mount"
 # systemd user unit for the hub: started now, and by D-Bus activation on the first call.
 install-service = "python tools/service.py install"
 uninstall-service = "python tools/service.py uninstall"

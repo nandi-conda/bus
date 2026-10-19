@@ -35,6 +35,14 @@
                 "type": "ref",
                 "ref": "#file"
               }
+            },
+            "dirs": {
+              "type": "array",
+              "maxLength": 1000,
+              "items": {
+                "type": "string"
+              },
+              "description": "Every folder name, empty ones included (e.g. plans, plans/old). Optional; providers without folders leave it out."
             }
           }
         }

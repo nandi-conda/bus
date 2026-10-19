@@ -12,8 +12,9 @@ Brokers find every provider of a service through a relay's
 ``com.atproto.sync.listReposByCollection?collection=org.latha.agentbus.weather`` (see
 ``agentbus.relay``) and call ``GET <endpoint>/xrpc/org.latha.agentbus.weather.current?place=Berlin``.
 
-A query's parameters arrive as strings; callers with typed (non-string) args POST a JSON object
-instead, and the server accepts both. Errors are the XRPC envelope ``{"error", "message"}``.
+A query's parameters arrive as strings; callers with typed (non-string) or long args (a file's
+content) POST a JSON object instead, and the server accepts both. Errors are the XRPC envelope
+``{"error", "message"}``.
 
 Auth is atproto inter-service auth: the caller's PDS signs a short-lived JWT
 (``com.atproto.server.getServiceAuth``) with ``iss`` = the caller's DID, ``aud`` = the proc's DID
@@ -36,7 +37,8 @@ from urllib.parse import parse_qsl, quote, urlencode, urlsplit
 PREFIX = "org.latha.agentbus."
 PLC = os.environ.get("AGENTBUS_PLC", "https://plc.directory")
 CALL_TIMEOUT = 20.0
-MAX_BODY = 1 << 20
+MAX_BODY = 2 << 20  # room for 1 MiB of file content, base64-encoded
+MAX_QUERY = 2048  # longer string args go as a POSTed body, not a URL
 MAX_CLOCK_SKEW = 30  # seconds a token's iat may sit in the future
 MAX_TOKEN_LIFETIME = 300
 
@@ -236,14 +238,15 @@ class ServiceAuth:
 
 
 def call(endpoint, function, args, token=None, timeout=CALL_TIMEOUT):
-    """Call bus function ``function`` on the proc at ``endpoint``. String-only args go as a GET
-    query, anything else as a POSTed JSON object. Returns the result dict or raises XrpcError."""
+    """Call bus function ``function`` on the proc at ``endpoint``. Short string-only args go as a
+    GET query, anything else as a POSTed JSON object. Returns the result dict or raises XrpcError."""
     url = f"{endpoint.rstrip('/')}/xrpc/{method_nsid(function)}"
     headers = {"Accept": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    if all(isinstance(v, str) for v in args.values()):
-        req = urllib.request.Request(f"{url}?{urlencode(args)}" if args else url, headers=headers)
+    query = urlencode(args) if all(isinstance(v, str) for v in args.values()) else None
+    if query is not None and len(query) <= MAX_QUERY:
+        req = urllib.request.Request(f"{url}?{query}" if query else url, headers=headers)
     else:
         req = urllib.request.Request(url, data=json.dumps(args).encode(), method="POST",
                                      headers={**headers, "Content-Type": "application/json"})

@@ -13,7 +13,7 @@ Everything is Python except the core library the bindings wrap.
 | Rust core: `hub`, `functions`, `topics`, `signals` | `crates/libagentbus` |
 | PyO3 bindings (`agentbus._native`) and the `agentbus` package (`Procs`, decorators) | `crates/agentbus-py` |
 | Example procs and apps: `hub.py`, `weather.py`, `app.py`, `ui.py`, `watch.py`, `procs_demo.py` | `examples/` |
-| File → Open GUI fanning out to every `files.list` proc | `examples/files/` |
+| File → Open GUI fanning out to every `files.list` proc, and the FUSE mount at `~/agentbus` | `examples/files/` |
 
 ## Python
 
@@ -72,6 +72,19 @@ name from the list; result: `{name, mime, size, encoding, content}`, `encoding` 
 at most 1 MiB) on the provider that listed it, and the window shows text in the editor and images in
 an image view.
 
+A provider that manages its files also provides `files.write` (`file`, `encoding`, `content`, as
+`files.read` returns them), `files.delete` (`file`), `files.mkdir` and `files.rmdir` (`dir`) and
+`files.rename` (`file`, `to`); `files.list` then also answers `dirs`, empty folders included. The
+directory proc and the S3 service do; the bot proc stays read-only.
+
+`pixi run mount` (`examples/files/mount.py`) mounts all of them as a normal folder over FUSE:
+`~/agentbus/<provider>/`, e.g. `~/agentbus/cloud/` for the S3 bucket on Modal. Reads call
+`files.read`, saving a file calls `files.write` when it's closed, and `rm`, `mkdir`, `rmdir` and
+`mv` call the rest; a read-only provider answers EROFS and files over 1 MiB EFBIG. Listings are
+cached for 10 s. It loads the system's libfuse3 (Arch: `fuse3`) through mfusepy;
+`pixi run unmount` unmounts it, and `pixi run install-mount` keeps it mounted as a systemd user
+unit.
+
 ## Public procs
 
 `Procs(name="weather", public=True)` makes a proc its own bot account on
@@ -106,7 +119,8 @@ The hub (`examples/hub.py`, `pixi run hub`) follows the services in `AGENTBUS_SE
 reads each repo's record from its PDS, and gives each provider its own connection to the hub
 (`agentbus/relay.py`, `agentbus/mirror.py`). `procs.call("weather.current", place="Berlin")`
 then becomes `GET <endpoint>/xrpc/org.latha.agentbus.weather.current?place=Berlin`;
-string-only args go as query params, anything else as a POSTed JSON object.
+short string-only args go as query params, anything else (a file's content) as a POSTed JSON
+object.
 
 Auth is atproto inter-service auth. The hub has its own rookery identity, enrolled on first
 start on `AGENTBUS_PDS` (default: the project's rookery on Modal), and gets a short-lived JWT for each call from its PDS (`com.atproto.server.getServiceAuth`, `aud`
@@ -116,7 +130,8 @@ the `#atproto` key in their DID document (`AGENTBUS_TRUST` narrows to a DID list
 identity a proc serves anyone and writes no record, so nothing discovers it.
 
 `examples/files/service.py` (`pixi run -e files-service files-service`) is the file proc as such
-a service: `org.latha.agentbus.files.list` and `.read` serve an S3 bucket (`AGENTBUS_FILES_S3`,
+a service: `org.latha.agentbus.files.list`, `.read`, `.write`, `.delete`, `.mkdir`, `.rmdir` and
+`.rename` serve an S3 bucket (`AGENTBUS_FILES_S3`,
 `AGENTBUS_FILES_BUCKET`, default `agentbus-files`, the project's MinIO on Modal), so File -> Open
 shows those files next to local ones.
 
@@ -133,6 +148,8 @@ pixi run app Paris --watch   # then keep following it until Ctrl-C (--watch 5: f
 pixi run -e gui files-demo   # hub + a directory proc + a bot proc + the File -> Open GUI
 pixi run -e gui files-gui    # the File -> Open GUI on this machine's hub (install-service)
 pixi run files-provider dir docs ~/Documents   # serve a directory to File -> Open
+pixi run mount               # every file provider as a folder at ~/agentbus (Ctrl-C unmounts)
+pixi run install-mount       # the same mount from login on, as a systemd user unit
 ```
 
 The default and `gui` environments install the prebuilt `agentbus` conda package

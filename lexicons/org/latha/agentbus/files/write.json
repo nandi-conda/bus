@@ -1,0 +1,62 @@
+{
+  "lexicon": 1,
+  "id": "org.latha.agentbus.files.write",
+  "description": "Create or replace one file, making its folders. Bus function files.write; only providers that manage their files offer it. Names are /-separated relative paths with no empty, '.' or '..' segments. Providers may require an atproto inter-service JWT (aud = provider DID, lxm = this NSID).",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "file",
+            "encoding",
+            "content"
+          ],
+          "properties": {
+            "file": {
+              "type": "string",
+              "maxLength": 1024,
+              "description": "e.g. plans/design.md."
+            },
+            "encoding": {
+              "type": "string",
+              "knownValues": [
+                "utf-8",
+                "base64"
+              ],
+              "description": "As files.read: utf-8 means content is the text, base64 its bytes."
+            },
+            "content": {
+              "type": "string",
+              "description": "At most 1 MiB once decoded."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "ref",
+          "ref": "org.latha.agentbus.files.list#file"
+        }
+      },
+      "errors": [
+        {
+          "name": "InvalidRequest",
+          "description": "Bad name or encoding, the name is a folder, or the content is over 1 MiB."
+        },
+        {
+          "name": "AuthRequired"
+        },
+        {
+          "name": "InvalidToken"
+        },
+        {
+          "name": "Forbidden"
+        }
+      ]
+    }
+  }
+}

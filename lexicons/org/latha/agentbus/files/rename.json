@@ -1,0 +1,61 @@
+{
+  "lexicon": 1,
+  "id": "org.latha.agentbus.files.rename",
+  "description": "Rename or move a file or folder within one provider; a file at the new name is replaced. Bus function files.rename. Names are /-separated relative paths with no empty, '.' or '..' segments. Providers may require an atproto inter-service JWT (aud = provider DID, lxm = this NSID).",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "file",
+            "to"
+          ],
+          "properties": {
+            "file": {
+              "type": "string",
+              "maxLength": 1024,
+              "description": "The current name."
+            },
+            "to": {
+              "type": "string",
+              "maxLength": 1024,
+              "description": "The new name."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "name"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "InvalidRequest",
+          "description": "No such file, the new name is a folder, or a folder would move into itself."
+        },
+        {
+          "name": "AuthRequired"
+        },
+        {
+          "name": "InvalidToken"
+        },
+        {
+          "name": "Forbidden"
+        }
+      ]
+    }
+  }
+}

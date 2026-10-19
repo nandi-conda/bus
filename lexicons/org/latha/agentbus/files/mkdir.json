@@ -1,0 +1,54 @@
+{
+  "lexicon": 1,
+  "id": "org.latha.agentbus.files.mkdir",
+  "description": "Make an empty folder. Bus function files.mkdir. Names are /-separated relative paths with no empty, '.' or '..' segments. Providers may require an atproto inter-service JWT (aud = provider DID, lxm = this NSID).",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "dir"
+          ],
+          "properties": {
+            "dir": {
+              "type": "string",
+              "maxLength": 1024
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "name"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "InvalidRequest",
+          "description": "The name exists already or is not a relative path of plain names."
+        },
+        {
+          "name": "AuthRequired"
+        },
+        {
+          "name": "InvalidToken"
+        },
+        {
+          "name": "Forbidden"
+        }
+      ]
+    }
+  }
+}
