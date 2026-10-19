@@ -2,12 +2,15 @@
 dbus-run-session (pixi run test-py does)."""
 
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 
 import agentbus
+from agentbus.freeq import Bridge
 
 FILES = os.path.join(os.path.dirname(__file__), "..", "examples", "files")
 
@@ -43,6 +46,39 @@ class FilesTest(unittest.TestCase):
                 p.terminate()
                 p.wait()
             del hub
+
+
+SERVER = os.environ.get("AGENTBUS_FREEQ_TEST_SERVER")
+
+
+@unittest.skipUnless(SERVER, "set AGENTBUS_FREEQ_TEST_SERVER to a freeq server")
+class BotsFilesTest(unittest.TestCase):
+    def test_files_from_a_proc_in_bots(self):
+        home = tempfile.mkdtemp()
+        env = {**os.environ, "AGENTBUS_FREEQ_HOME": home, "AGENTBUS_FREEQ_SERVER": SERVER}
+        os.environ["AGENTBUS_FREEQ_HOME"] = home
+        hub = agentbus.Hub()
+        # The #bots proc lives on its own bus, like another host.
+        remote = subprocess.Popen(["dbus-run-session", "--", sys.executable, "demo.py", "--host", "files-t"],
+                                  cwd=FILES, env=env, stdin=subprocess.PIPE)
+        bridge = Bridge(server=SERVER).start()
+        try:
+            bridge.bot.wait_ready()
+            app = agentbus.Procs()
+            deadline = time.monotonic() + 30
+            while not app.providers("files.list") and time.monotonic() < deadline:
+                time.sleep(0.2)
+            [(owner, _)] = app.providers("files.list")
+            self.assertTrue(bridge.owners()[owner][0].startswith("files-t"))  # freeq may suffix a taken nick
+            answer = app.call("files.list", provider=owner, path="plans/")
+            self.assertEqual(answer["provider"], "#bots/files-t")
+            self.assertEqual([f["name"] for f in answer["files"]], ["plans/kv-store-design.md"])
+        finally:
+            bridge.stop()
+            remote.stdin.close()  # ends the other host's procs; see demo.other_host
+            remote.wait()
+            del hub
+            shutil.rmtree(home)
 
 
 if __name__ == "__main__":

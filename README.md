@@ -113,7 +113,9 @@ then goes as a tag-only DM to a proc in `#bots` that announced it
 `+agentbus/error`. Each remote proc gets its own connection to the hub, so the hub sees one
 provider per proc: it ranks and fails over between them like local providers, and an app can fan
 out with `providers(name)` and `call(name, provider=...)` (File → Open does this for
-`files.list`). `bridge.owners()` maps those unique names to each proc's nick and DID.
+`files.list`: `examples/files/provider.py bots NICK` is a file proc in `#bots`, and
+`files-demo --bots` runs one on a second bus next to the bridge, so its files show up in the
+Open dialog tagged `#bots/NICK`). `bridge.owners()` maps those unique names to each proc's nick and DID.
 
 - Only announcements from signed-in DIDs count; `AGENTBUS_TRUST=did:...,did:...` narrows that.
 - A bridge never imports procs from its own bus (`+agentbus/host`).
@@ -135,6 +137,7 @@ by `AGENTBUS_FREEQ_TEST_SERVER` (e.g. a local `freeq-server` at `irc://127.0.0.1
 pixi run test                # Python tests on a private bus (dbus-run-session)
 pixi run demo                # hub + weather proc + an app calling and following weather
 pixi run -e gui files-demo   # hub + a directory proc + a bot proc + the File -> Open GUI
+pixi run -e gui files-demo --bots   # ...plus the bridge and a file proc in #bots on freeq
 ```
 
 The default and `gui` environments install the prebuilt `agentbus` conda package
