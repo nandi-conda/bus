@@ -27,6 +27,8 @@ demo = "dbus-run-session -- python examples/procs_demo.py"
 # systemd user unit for the hub: started now, and by D-Bus activation on the first call.
 install-service = "python tools/service.py install"
 uninstall-service = "python tools/service.py uninstall"
+# The installed hub's recent log, for when it won't start.
+hub-logs = "journalctl --user -u agentbus-hub.service -n 60 --no-pager"
 test = "dbus-run-session -- python -m unittest discover -s tests -v"
 
 # The published package. Python code runs against this, never a local build.
