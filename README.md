@@ -75,10 +75,10 @@ an image view.
 A provider that manages its files also provides `files.write` (`file`, `encoding`, `content`, as
 `files.read` returns them), `files.delete` (`file`), `files.mkdir` and `files.rmdir` (`dir`) and
 `files.rename` (`file`, `to`); `files.list` then also answers `dirs`, empty folders included. The
-directory proc and the S3 service do, and the bot proc keeps its files in memory.
+directory proc and the files service do, and the bot proc keeps its files in memory.
 
 `pixi run mount` (`examples/files/mount.py`) mounts all of them as a normal folder over FUSE:
-`~/agentbus/<provider>/`, e.g. `~/agentbus/cloud/` for the S3 bucket on Modal. Reads call
+`~/agentbus/<provider>/`, e.g. `~/agentbus/cloud/` for the files service on Modal. Reads call
 `files.read`, saving a file calls `files.write` when it's closed, and `rm`, `mkdir`, `rmdir` and
 `mv` call the rest; a read-only provider answers EROFS and files over 1 MiB EFBIG. Listings are
 cached for 10 s. It loads the system's libfuse3 (Arch: `fuse3`) through mfusepy;
@@ -129,11 +129,10 @@ with `AGENTBUS_PDS` and `AGENTBUS_ENDPOINT`) answers only callers whose JWT chec
 the `#atproto` key in their DID document (`AGENTBUS_TRUST` narrows to a DID list). Without an
 identity a proc serves anyone and writes no record, so nothing discovers it.
 
-`examples/files/service.py` (`pixi run -e files-service files-service`) is the file proc as such
-a service: `org.latha.agentbus.files.list`, `.read`, `.write`, `.delete`, `.mkdir`, `.rmdir` and
-`.rename` serve an S3 bucket (`AGENTBUS_FILES_S3`,
-`AGENTBUS_FILES_BUCKET`, default `agentbus-files`, the project's MinIO on Modal), so File -> Open
-shows those files next to local ones.
+`examples/files/service.py` (`pixi run files-service`) is the file proc as such a service:
+`org.latha.agentbus.files.list`, `.read`, `.write`, `.delete`, `.mkdir`, `.rmdir` and `.rename`
+serve one folder (`AGENTBUS_FILES_DIR`). On Modal that folder is the Volume `agentbus-files-data`,
+so File -> Open and the mount show those files next to local ones.
 
 The relay only lists repos it crawls: the PDS has to be up, deployed with the service-record
 validation, and have asked the relay to crawl it (`ROOKERY_RELAY_HOSTS` includes `bsky.network`).
