@@ -76,9 +76,9 @@ class BridgeTest(unittest.TestCase):
         cls.remotes = [cls.start_remote(f"weather{i}") for i in (1, 2)]
         cls.hub = agentbus.Hub(HUB)
         cls.app = agentbus.Procs(HUB)
-        cls.bridge = Bridge(agentbus.Procs(HUB), server=SERVER).start()
+        cls.bridge = Bridge(HUB, server=SERVER).start()
         cls.bridge.bot.wait_ready()
-        cls.wait_for(lambda: len(cls.bridge.providers("weather.current")) == 2)
+        cls.wait_for(lambda: len(cls.app.providers("weather.current")) == 2)
 
     @classmethod
     def tearDownClass(cls):
@@ -118,14 +118,17 @@ class BridgeTest(unittest.TestCase):
         raise AssertionError("condition not met in time")
 
     def test_call_reaches_a_proc_in_bots(self):
-        self.assertIn("weather.current", self.app.functions())
-        senders = set()
-        for _ in range(4):
-            result = self.app.call("weather.current", place="Berlin")
-            self.assertEqual((result["temp_c"], result["place"]), (11.5, "Berlin"))
-            senders.add(result["from"])
-        self.assertEqual(senders, {"weather1", "weather2"})
-        for _, did in self.bridge.providers("weather.current"):
+        result = self.app.call("weather.current", place="Berlin")
+        self.assertEqual((result["temp_c"], result["place"]), (11.5, "Berlin"))
+        # Each remote proc is its own provider on the hub, so an app can fan out to all of them.
+        owners = self.bridge.owners()
+        senders = {}
+        for owner, _ in self.app.providers("weather.current"):
+            senders[self.app.call("weather.current", provider=owner, place="Oslo")["from"]] = owner
+        self.assertEqual(set(senders), {"weather1", "weather2"})
+        for name, owner in senders.items():
+            nick, did = owners[owner]
+            self.assertTrue(nick.startswith(name))
             self.assertTrue(did.startswith("did:key:"))
 
     def test_remote_error_comes_back(self):
@@ -136,7 +139,7 @@ class BridgeTest(unittest.TestCase):
     def test_zz_leaving_withdraws(self):
         # Runs last: stops one remote, then the other.
         self.stop_remote(self.remotes[0])
-        self.wait_for(lambda: len(self.bridge.providers("weather.current")) == 1)
+        self.wait_for(lambda: len(self.app.providers("weather.current")) == 1)
         for _ in range(3):
             self.assertEqual(self.app.call("weather.current", place="Oslo")["from"], "weather2")
         self.stop_remote(self.remotes[1])

@@ -108,11 +108,16 @@ functions change and whenever someone sends `@+agentbus/discover=1 TAGMSG #bots`
 provides each announced function on the local hub. A local `procs.call("weather.current", ...)`
 then goes as a tag-only DM to a proc in `#bots` that announced it
 (`+agentbus/call`, `+agentbus/fn`, `+agentbus/args`), which answers with `+agentbus/result` or
-`+agentbus/error`. The bridge rotates between providers and fails over on errors and timeouts.
+`+agentbus/error`. Each remote proc gets its own connection to the hub, so the hub sees one
+provider per proc: it ranks and fails over between them like local providers, and an app can fan
+out with `providers(name)` and `call(name, provider=...)` (File → Open does this for
+`files.list`). `bridge.owners()` maps those unique names to each proc's nick and DID.
 
 - Only announcements from signed-in DIDs count; `AGENTBUS_TRUST=did:...,did:...` narrows that.
 - A bridge never imports procs from its own bus (`+agentbus/host`).
-- `AGENTBUS_FREEQ_SERVER` picks the server (default `ircs://irc.freeq.at:6697`) and
+- `AGENTBUS_FREEQ_SERVER` picks the server: `ircs://irc.freeq.at:6697` (default), or
+  `wss://irc.freeq.at/irc`, freeq's WebSocket gateway, which also goes through `$HTTPS_PROXY`
+  for sandboxes that only allow HTTPS out.
   `AGENTBUS_FREEQ_DEBUG=1` prints every line received.
 - Limits come from freeq: 8 KiB lines (so args and results stay under ~7 KB each), and about
   10 commands per second per connection, which the bot paces itself to. A proc that crashes

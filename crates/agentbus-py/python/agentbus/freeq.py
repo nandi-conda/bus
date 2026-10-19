@@ -19,7 +19,8 @@ Calls are tag-only DMs to the proc's nick, answered by the proc itself::
 
 The bridge (``Bridge``) joins #bots, asks who provides what, and calls ``Provide`` on the local
 hub for every function a remote proc announces. A local ``procs.call("weather.current", …)`` then
-reaches whichever proc in #bots provides it, failing over to the next one on errors. Only
+reaches whichever proc in #bots provides it: each remote proc is its own provider on the hub, so
+the hub ranks and fails over between them as it does for local ones. Only
 announcements from signed-in DIDs count (the ``account`` tag); ``trust`` narrows that to a set.
 """
 
@@ -249,12 +250,17 @@ class Bot:
 
     def _connect(self):
         url = urlsplit(self.server)
-        if url.scheme not in ("irc", "ircs"):
-            raise FreeqError(f"server must be irc:// or ircs://, not {self.server!r}")
-        port = url.port or (6697 if url.scheme == "ircs" else 6667)
-        sock = socket.create_connection((url.hostname, port), timeout=15)
-        if url.scheme == "ircs":
-            sock = ssl.create_default_context().wrap_socket(sock, server_hostname=url.hostname)
+        ports = {"irc": 6667, "ircs": 6697, "ws": 80, "wss": 443}
+        if url.scheme not in ports:
+            raise FreeqError(f"server must be irc://, ircs://, ws:// or wss://, not {self.server!r}")
+        port = url.port or ports[url.scheme]
+        if url.scheme.startswith("ws"):
+            sock = _open_tunnel(url.hostname, port, url.scheme == "wss")
+            sock = _WebSocket(sock, url.hostname, url.path or "/irc")
+        else:
+            sock = socket.create_connection((url.hostname, port), timeout=15)
+            if url.scheme == "ircs":
+                sock = _tls_context().wrap_socket(sock, server_hostname=url.hostname)
         sock.settimeout(None)
         return sock
 
@@ -402,6 +408,133 @@ class Bot:
         self.send(f"{format_tags(tags)} TAGMSG {target}")
 
 
+def _open_tunnel(host, port, tls):
+    """A TCP (and TLS) connection to host:port, through $HTTPS_PROXY with CONNECT when one is
+    set and the host isn't in $NO_PROXY: sandboxes often allow only that route out."""
+    proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+    no_proxy = [h.strip().lstrip(".") for h in (os.environ.get("NO_PROXY") or os.environ.get("no_proxy") or "").split(",") if h.strip()]
+    if proxy and not any(host == h or host.endswith("." + h) for h in no_proxy):
+        p = urlsplit(proxy if "://" in proxy else "http://" + proxy)
+        sock = socket.create_connection((p.hostname, p.port or 80), timeout=15)
+        auth = ""
+        if p.username:
+            auth = "Proxy-Authorization: Basic " + base64.b64encode(f"{p.username}:{p.password or ''}".encode()).decode() + "\r\n"
+        sock.sendall(f"CONNECT {host}:{port} HTTP/1.1\r\nHost: {host}:{port}\r\n{auth}\r\n".encode())
+        head = b""
+        while b"\r\n\r\n" not in head:
+            chunk = sock.recv(4096)
+            if not chunk:
+                raise FreeqError("proxy closed the connection during CONNECT")
+            head += chunk
+        status = head.split(b"\r\n", 1)[0].decode("latin-1")
+        if " 200" not in status:
+            raise FreeqError(f"proxy refused CONNECT {host}:{port}: {status}")
+    else:
+        sock = socket.create_connection((host, port), timeout=15)
+    if tls:
+        sock = _tls_context().wrap_socket(sock, server_hostname=host)
+    return sock
+
+
+def _tls_context():
+    # Honor a CA bundle the environment names, as a TLS-inspecting proxy needs.
+    cafile = os.environ.get("SSL_CERT_FILE") or os.environ.get("REQUESTS_CA_BUNDLE")
+    return ssl.create_default_context(cafile=cafile if cafile and os.path.exists(cafile) else None)
+
+
+class _WebSocket:
+    """Just enough of RFC 6455 for freeq's /irc gateway, which carries one IRC line per text
+    frame. Looks like a socket to Bot: ``sendall`` takes CRLF-terminated lines, ``recv`` yields
+    them back CRLF-terminated."""
+
+    def __init__(self, sock, host, path):
+        self.sock = sock
+        key = base64.b64encode(os.urandom(16)).decode()
+        sock.sendall((f"GET {path} HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\n"
+                      f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\n"
+                      "Sec-WebSocket-Version: 13\r\n\r\n").encode())
+        head = b""
+        while b"\r\n\r\n" not in head:
+            chunk = sock.recv(4096)
+            if not chunk:
+                raise FreeqError("server closed the connection during the WebSocket upgrade")
+            head += chunk
+        head, self._buf = head.split(b"\r\n\r\n", 1)
+        status = head.split(b"\r\n", 1)[0].decode("latin-1")
+        if " 101" not in status:
+            raise FreeqError(f"WebSocket upgrade refused: {status}")
+        accept = base64.b64encode(hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()).decode()
+        if f"sec-websocket-accept: {accept}".lower().encode() not in head.lower():
+            raise FreeqError("WebSocket upgrade answered with the wrong accept key")
+        self._lock = threading.Lock()
+
+    def settimeout(self, t):
+        self.sock.settimeout(t)
+
+    def close(self):
+        try:
+            self._frame(0x8, b"")
+        except OSError:
+            pass
+        self.sock.close()
+
+    def _frame(self, opcode, payload):
+        n = len(payload)
+        head = bytes([0x80 | opcode])
+        if n < 126:
+            head += bytes([0x80 | n])
+        elif n < 65536:
+            head += bytes([0x80 | 126]) + n.to_bytes(2, "big")
+        else:
+            head += bytes([0x80 | 127]) + n.to_bytes(8, "big")
+        mask = os.urandom(4)
+        body = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+        with self._lock:
+            self.sock.sendall(head + mask + body)
+
+    def sendall(self, data):
+        for line in data.split(b"\r\n"):
+            if line:
+                self._frame(0x1, line)
+
+    def _read(self, n):
+        while len(self._buf) < n:
+            chunk = self.sock.recv(65536)
+            if not chunk:
+                raise OSError("connection closed")
+            self._buf += chunk
+        out, self._buf = self._buf[:n], self._buf[n:]
+        return out
+
+    def recv(self, _size):
+        """The next text frame, as one CRLF-terminated line ("" once the server closes)."""
+        message = b""
+        try:
+            while True:
+                b0, b1 = self._read(2)
+                n = b1 & 0x7F
+                if n == 126:
+                    n = int.from_bytes(self._read(2), "big")
+                elif n == 127:
+                    n = int.from_bytes(self._read(8), "big")
+                mask = self._read(4) if b1 & 0x80 else None
+                payload = self._read(n)
+                if mask:
+                    payload = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+                opcode = b0 & 0x0F
+                if opcode == 0x8:
+                    return b""
+                if opcode == 0x9:
+                    self._frame(0xA, payload)
+                    continue
+                if opcode in (0x0, 0x1, 0x2):
+                    message += payload
+                    if b0 & 0x80:
+                        return message if message.endswith(b"\r\n") else message + b"\r\n"
+        except OSError:
+            return b""
+
+
 def _json(value):
     return json.dumps(value, separators=(",", ":"))
 
@@ -487,15 +620,27 @@ class PublicProc:
 # ── Bridge ──────────────────────────────────────────────────────────────────
 
 
+class _Remote:
+    """One remote proc in #bots, and the local bus connection that stands in for it."""
+
+    def __init__(self, nick, did, functions):
+        self.nick, self.did, self.functions = nick, did, functions
+        self.procs = None  # agentbus.Procs on the local hub, made by the sync thread
+        self.provided = set()
+
+
 class Bridge:
     """Makes functions announced in #bots callable on the local hub.
 
-    ``procs`` is an ``agentbus.Procs`` connected to the local hub. For each function some
-    trusted remote proc announces, the bridge provides it locally and forwards each call over
-    freeq, trying providers in turn until one answers."""
+    Each trusted remote proc gets its own connection to the local hub (``hub``), which provides
+    the functions that proc announced and forwards each call to it over freeq. So the hub sees
+    one provider per remote proc: it ranks them, fails over between them, and an app can list
+    them with ``providers(name)`` and call one with ``call(name, provider=...)``."""
 
-    def __init__(self, procs, name=None, trust=None, call_timeout=CALL_TIMEOUT, **bot_args):
-        self.procs = procs
+    def __init__(self, hub=None, name=None, trust=None, call_timeout=CALL_TIMEOUT, **bot_args):
+        from . import HUB_NAME
+
+        self.hub = hub or HUB_NAME
         self.host = host_id()
         self.trust = set(trust) if trust else None
         self.call_timeout = call_timeout
@@ -503,13 +648,17 @@ class Bridge:
         self.bot.on_ready = self._on_ready
         self.bot.on_message = self._on_message
         self._lock = threading.Lock()
-        self._remote = {}  # nick -> (did, set of functions)
-        self._provided = set()
-        self._pending = {}  # call id -> [threading.Event, reply tags]
+        self._remote = {}  # nick -> _Remote
+        self._standing = {}  # _Remote -> True, for every remote that still has a hub connection
+        self._pending = {}  # call id -> [threading.Event, reply tags, nick]
         self._ids = itertools.count()
-        self._turn = itertools.count()
+        self._dirty = threading.Event()
+        self._stopping = threading.Event()
+        self._synced = threading.Condition()
+        self._sync_thread = threading.Thread(target=self._sync_loop, name="bridge-sync", daemon=True)
 
     def start(self):
+        self._sync_thread.start()
         self.bot.start()
         return self
 
@@ -517,22 +666,29 @@ class Bridge:
         self.bot.stop()
         with self._lock:
             self._remote.clear()
-        self._sync()
+        self._dirty.set()
+        self._stopping.set()
+        self._sync_thread.join(10)
 
     def functions(self):
         """The functions this bridge currently provides on the local hub."""
         with self._lock:
-            return set(self._provided)
+            return set().union(*(r.provided for r in self._standing))
 
     def providers(self, name):
-        """[(nick, did)] of the remote procs providing ``name``."""
+        """[(nick, did)] of the remote procs providing ``name`` on the local hub."""
         with self._lock:
-            return sorted((nick, did) for nick, (did, fns) in self._remote.items() if name in fns)
+            return sorted((r.nick, r.did) for r in self._standing if name in r.provided)
+
+    def owners(self):
+        """{local unique bus name: (nick, did)}, to label what ``Procs.providers`` returns."""
+        with self._lock:
+            return {r.procs.unique_name: (r.nick, r.did) for r in self._standing if r.procs}
 
     def _on_ready(self):
         with self._lock:
             self._remote.clear()
-        self._sync()
+        self._dirty.set()
         self.bot.tagmsg(self.bot.channel, {"+agentbus/discover": "1"})
 
     def _on_message(self, tags, nick, command, params):
@@ -548,11 +704,13 @@ class Bridge:
             gone = params[1] if command == "KICK" and len(params) > 1 else nick
             with self._lock:
                 self._remote.pop(gone, None)
-            self._sync()
+            self._dirty.set()
         elif command == "NICK" and params:
             with self._lock:
-                if nick in self._remote:
-                    self._remote[params[0]] = self._remote.pop(nick)
+                remote = self._remote.pop(nick, None)
+                if remote:
+                    remote.nick = params[0]
+                    self._remote[params[0]] = remote
 
     def _learn(self, tags, nick):
         did = tags.get("account")
@@ -562,38 +720,67 @@ class Bridge:
             return
         fns = {f for f in tags["+agentbus/provides"].split(",") if f}
         with self._lock:
-            self._remote[nick] = (did, fns)
-        self._sync()
+            remote = self._remote.get(nick)
+            if remote and remote.did == did:
+                remote.functions = fns
+            else:
+                self._remote[nick] = _Remote(nick, did, fns)
+        self._dirty.set()
+
+    def _sync_loop(self):
+        # D-Bus calls happen here, never on the freeq reader thread, so replies keep flowing.
+        while True:
+            self._dirty.wait()
+            self._dirty.clear()
+            self._sync()
+            with self._synced:
+                self._synced.notify_all()
+            if self._stopping.is_set() and not self._dirty.is_set():
+                return
 
     def _sync(self):
-        """Provide every remotely announced function locally, and withdraw the rest."""
-        with self._lock:
-            wanted = set().union(*(fns for _, fns in self._remote.values()))
-            add, drop = wanted - self._provided, self._provided - wanted
-            self._provided = wanted
-        for name in sorted(add):
-            self.procs.provide(name, self._forwarder(name))
-        for name in sorted(drop):
-            try:
-                self.procs.withdraw(name)
-            except Exception:
-                pass
+        """Give every remote proc a hub connection providing what it announced; drop the rest."""
+        from . import Procs
 
-    def _forwarder(self, name):
-        def forward(args, info):
-            providers = self.providers(name)
-            if not providers:
-                raise FreeqError(f"no proc in {self.bot.channel} provides {name} any more")
-            start = next(self._turn) % len(providers)
-            errors = []
-            for nick, did in providers[start:] + providers[:start]:
-                if info is not None and info.cancelled:
-                    raise TimeoutError("call canceled")
+        with self._lock:
+            live = list(self._remote.values())
+            gone = [r for r in self._standing if r not in live]
+        for remote in gone:
+            for name in sorted(remote.provided):
                 try:
-                    return self.call(nick, name, args)
-                except (FreeqError, TimeoutError) as e:
-                    errors.append(f"{nick} ({did}): {e}")
-            raise FreeqError("; ".join(errors))
+                    remote.procs.withdraw(name)
+                except Exception:
+                    pass
+            with self._lock:
+                remote.provided = set()
+                self._standing.pop(remote, None)
+            remote.procs = None  # dropping the connection releases anything left
+        for remote in live:
+            try:
+                if remote.procs is None:
+                    remote.procs = Procs(self.hub)
+                for name in sorted(remote.functions - remote.provided):
+                    remote.procs.provide(name, self._forwarder(remote, name))
+                    with self._lock:
+                        remote.provided.add(name)
+                        self._standing[remote] = True
+                for name in sorted(remote.provided - remote.functions):
+                    remote.procs.withdraw(name)
+                    with self._lock:
+                        remote.provided.discard(name)
+            except Exception as e:
+                print(f"bridge: could not provide {remote.nick}'s functions: {e}", flush=True)
+
+    def wait_synced(self, timeout=10):
+        """Block until pending announcements have reached the hub (for tests and scripts)."""
+        with self._synced:
+            return self._synced.wait_for(lambda: not self._dirty.is_set(), timeout)
+
+    def _forwarder(self, remote, name):
+        def forward(args, info):
+            if info is not None and info.cancelled:
+                raise TimeoutError("call canceled")
+            return self.call(remote.nick, name, args)
 
         return forward
 

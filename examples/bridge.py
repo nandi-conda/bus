@@ -7,11 +7,10 @@ AGENTBUS_TRUST, a comma-separated list of DIDs, limits whose procs are imported.
 import os
 import time
 
-import agentbus
 from agentbus.freeq import Bridge
 
 trust = [d for d in os.environ.get("AGENTBUS_TRUST", "").split(",") if d]
-bridge = Bridge(agentbus.Procs(), trust=trust or None).start()
+bridge = Bridge(trust=trust or None).start()
 bridge.bot.wait_ready()
 print(f"bridge: in {bridge.bot.channel} on {bridge.bot.server} as {bridge.bot.nick}", flush=True)
 
