@@ -12,21 +12,17 @@ rust = ">=1.85"
 dbus = "*"
 
 [tasks]
-build = "cargo build --workspace --examples"
+build = "cargo build --workspace"
 develop = "maturin develop --release -m crates/agentbus-py/Cargo.toml"
 wheel = "maturin build --release -m crates/agentbus-py/Cargo.toml"
-greeter = "cargo run -p libagentbus --example greeter"
-router = "cargo run -p libagentbus --example router"
-agent = "cargo run -p libagentbus --example agent"
-sender = "cargo run -p libagentbus --example sender"
+greeter = { cmd = "python examples/greeter.py", depends-on = ["develop"] }
+router = { cmd = "python examples/router.py", depends-on = ["develop"] }
+agent = { cmd = "python examples/agent.py", depends-on = ["develop"] }
+sender = { cmd = "python examples/sender.py", depends-on = ["develop"] }
 topics-hub = { cmd = "python examples/topics_hub.py", depends-on = ["develop"] }
 watch = { cmd = "python examples/watch.py", depends-on = ["develop"] }
-# Router + Rust agent + Rust sender on a private bus.
-demo = "dbus-run-session -- scripts/demo.sh"
-# Router + Rust agent, with the Python script submitting the task.
-py-demo = { cmd = "dbus-run-session -- scripts/demo.sh python examples/submit_task.py", depends-on = ["develop"] }
-# Router + Python agent + Rust sender.
-py-agent-demo = { cmd = "dbus-run-session -- scripts/demo.sh", env = { AGENT = "python examples/agent.py" }, depends-on = ["develop"] }
+# Router + agent + sender on a private bus.
+demo = { cmd = "dbus-run-session -- python examples/demo.py", depends-on = ["develop"] }
 # Topics hub + weather source + an app watching Berlin (all Python), on a private bus.
 topics-demo = { cmd = "dbus-run-session -- scripts/topics-demo.sh", depends-on = ["develop"] }
 test-rust = "dbus-run-session -- cargo test --workspace"

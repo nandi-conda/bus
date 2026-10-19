@@ -333,11 +333,33 @@ impl Agent {
     }
 }
 
+/// Own a capability slot such as "org.agentbus.cap.Plan1" and route each task submitted to it
+/// to the next live agent that joined the slot.
+#[pyclass(frozen)]
+struct Router {
+    _agent: agentbus::Agent,
+}
+
+#[pymethods]
+impl Router {
+    #[new]
+    fn new(py: Python<'_>, slot: &str) -> PyResult<Self> {
+        let agent = block(py, agentbus::router::serve(slot))?.map_err(bus_err)?;
+        Ok(Router { _agent: agent })
+    }
+
+    /// Serve until interrupted (Ctrl-C raises KeyboardInterrupt).
+    fn run_forever(&self, py: Python<'_>) -> PyResult<()> {
+        block(py, std::future::pending::<()>())
+    }
+}
+
 #[pymodule(name = "agentbus")]
 fn agentbus_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Client>()?;
     m.add_class::<Task>()?;
     m.add_class::<Agent>()?;
+    m.add_class::<Router>()?;
     m.add_class::<PyTaskContext>()?;
     m.add_class::<topics::TopicsHub>()?;
     m.add_class::<topics::Topics>()?;

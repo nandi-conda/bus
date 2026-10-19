@@ -9,10 +9,9 @@ slot router.
 |---|---|
 | Rust core (`agentbus` crate: `Agent`, `submit`, `TaskContext`, `router`) | `crates/libagentbus` |
 | Python bindings (PyO3, built with maturin) | `crates/agentbus-py` |
-| Rust examples: `greeter`, `router`, `agent`, `sender` | `crates/libagentbus/examples` |
 | App-domain topics (`agentbus::topics`, Python `agentbus.Topics` / `TopicsHub`) | `crates/libagentbus/src/topics.rs`, `crates/agentbus-py/src/topics.rs` |
 | Python topic examples: `topics_hub.py`, `weather_source.py`, `watch.py` | `examples/` |
-| Python examples: `submit_task.py`, `agent.py` | `examples/` |
+| Python task examples: `greeter.py`, `router.py`, `agent.py`, `sender.py`, `demo.py` | `examples/` |
 
 ## D-Bus surface
 
@@ -41,9 +40,7 @@ States follow A2A: `submitted`, `working`, `input-required`, `completed`, `faile
 
 ```sh
 pixi run test           # Rust + Python tests on a private bus (dbus-run-session)
-pixi run demo           # router + Rust agent + Rust sender
-pixi run py-demo        # router + Rust agent, Python submits the task
-pixi run py-agent-demo  # router + Python agent, Rust sender
+pixi run demo           # router + agent + sender, all Python
 pixi run topics-demo    # topics hub + weather source + an app watching Berlin
 pixi run develop        # build the Python module into the pixi env
 ```

@@ -2,6 +2,7 @@
 a slot router. Run under dbus-run-session (pixi run test-py does)."""
 
 import subprocess
+import sys
 import time
 import unittest
 
@@ -51,22 +52,34 @@ class AgentbusTest(unittest.TestCase):
         self.assertIn("asked to fail", result["report"]["reason"])
 
     def test_via_router(self):
-        router = subprocess.Popen(
-            ["target/debug/examples/router", "org.agentbus.test.Echo1"]
+        router = agentbus.Router("org.agentbus.test.Echo1")
+        self.agent.join_slot("org.agentbus.test.Echo1")
+        events, result = self.run_task("org.agentbus.test.Echo1", {})
+        self.assertEqual(result["state"], "completed")
+        self.assertTrue(any(e["type"] == "log" for e in events))
+        del router
+
+    def test_demo(self):
+        demo = subprocess.run(
+            [sys.executable, "examples/demo.py", "zig"], capture_output=True, text=True
         )
+        self.assertEqual(demo.returncode, 0, demo.stderr)
+        self.assertIn("sender: finished completed", demo.stdout)
+        self.assertIn("'language': 'zig'", demo.stdout)
+
+    def test_greeter(self):
+        greeter = subprocess.Popen([sys.executable, "examples/greeter.py"])
         try:
-            for _ in range(50):
-                try:
-                    self.agent.join_slot("org.agentbus.test.Echo1")
-                    break
-                except agentbus.BusError:
-                    time.sleep(0.1)
-            events, result = self.run_task("org.agentbus.test.Echo1", {})
-            self.assertEqual(result["state"], "completed")
-            self.assertTrue(any(e["type"] == "log" for e in events))
+            time.sleep(1)
+            for n in (1, 2):
+                out = subprocess.run(
+                    [sys.executable, "examples/greeter.py", "--call", "Maria"],
+                    capture_output=True, text=True, check=True,
+                ).stdout
+                self.assertEqual(out.strip(), f"Hello Maria! I have been called {n} times.")
         finally:
-            router.terminate()
-            router.wait()
+            greeter.terminate()
+            greeter.wait()
 
     def test_bad_input(self):
         with self.assertRaises(agentbus.BusError):

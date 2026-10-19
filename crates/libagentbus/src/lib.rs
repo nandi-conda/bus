@@ -9,7 +9,6 @@
 
 mod agent;
 mod client;
-pub mod demo;
 mod error;
 pub mod router;
 mod task;
