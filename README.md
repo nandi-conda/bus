@@ -57,6 +57,17 @@ for event in task:
 print(task.result())
 ```
 
+## File → Open example
+
+`examples/files/` is an ordinary PySide6 app with no chat box: File → Open broadcasts
+`org.example.Files1.GetFiles(s request)` on the session bus, and every provider that hears it
+broadcasts `SendFiles(s request, s provider, as files)` back. The dialog lists whatever arrives,
+tagged by provider, so an agent shows up in the app's own Open dialog next to the local disk.
+
+```sh
+pixi run -e gui files-demo   # a directory provider, an agent provider, and the GUI on a private bus
+```
+
 ## Not yet
 
 Artifacts (fd passing), `Amend`, `Quote`/award, budgets and grants, and the SQLite journal from

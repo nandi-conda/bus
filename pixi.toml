@@ -32,3 +32,13 @@ topics-demo = "dbus-run-session -- scripts/topics-demo.sh"
 test-rust = "dbus-run-session -- cargo test --workspace"
 test-py = { cmd = "dbus-run-session -- python -m unittest discover -s tests -v", depends-on = ["develop"] }
 test = { depends-on = ["test-rust", "test-py"] }
+
+[feature.gui.dependencies]
+pyside6 = ">=6.7"
+
+[feature.gui.tasks]
+# File -> Open GUI: broadcasts GetFiles, lists every provider's SendFiles reply.
+files-demo = "dbus-run-session -- scripts/files_demo.sh"
+
+[environments]
+gui = ["gui"]
