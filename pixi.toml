@@ -1,0 +1,30 @@
+[workspace]
+name = "bus"
+version = "0.1.0"
+description = "libagentbus: tasks over D-Bus, with Python bindings"
+channels = ["conda-forge"]
+platforms = ["linux-64", "linux-aarch64"]
+
+[dependencies]
+python = "3.13.*"
+maturin = ">=1.9,<2"
+rust = ">=1.85"
+dbus = "*"
+
+[tasks]
+build = "cargo build --workspace --examples"
+develop = "maturin develop --release -m crates/agentbus-py/Cargo.toml"
+wheel = "maturin build --release -m crates/agentbus-py/Cargo.toml"
+greeter = "cargo run -p libagentbus --example greeter"
+router = "cargo run -p libagentbus --example router"
+agent = "cargo run -p libagentbus --example agent"
+sender = "cargo run -p libagentbus --example sender"
+# Router + Rust agent + Rust sender on a private bus.
+demo = "dbus-run-session -- scripts/demo.sh"
+# Router + Rust agent, with the Python script submitting the task.
+py-demo = { cmd = "dbus-run-session -- scripts/demo.sh python examples/submit_task.py", depends-on = ["develop"] }
+# Router + Python agent + Rust sender.
+py-agent-demo = { cmd = "dbus-run-session -- scripts/demo.sh", env = { AGENT = "python examples/agent.py" }, depends-on = ["develop"] }
+test-rust = "dbus-run-session -- cargo test --workspace"
+test-py = { cmd = "dbus-run-session -- python -m unittest discover -s tests -v", depends-on = ["develop"] }
+test = { depends-on = ["test-rust", "test-py"] }

@@ -1,0 +1,15 @@
+[package]
+name = "libagentbus"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "agentbus"
+
+[dependencies]
+zbus = { version = "6.0.0", default-features = false, features = ["tokio", "proxy", "service", "object-manager"] }
+tokio = { version = "1.53.3", features = ["full"] }
+futures-util = "0.3.34"
+serde_json = "1.0.154"
+serde = "1"
