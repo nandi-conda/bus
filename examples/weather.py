@@ -4,7 +4,8 @@ weather API.
 
 It is a public proc: its own bot account on rookery ($AGENTBUS_PDS, handle $AGENTBUS_HANDLE or
 "weather"), with a dev.agentbus.proc record listing what it provides and publishes, and its DID
-on every reading. `--local` keeps it on the local bus with no identity."""
+on every reading, and it joins #bots on freeq as its own bot. `--local` keeps it on the local bus
+with no identity; `--local --freeq` puts it in #bots with only its freeq did:key."""
 
 import json
 import sys
@@ -18,7 +19,7 @@ SCHEMA = json.dumps({
 })
 
 procs = agentbus.Procs(name="weather", description="Current conditions and alerts per place (demo readings)",
-                       public="--local" not in sys.argv[1:])
+                       public="--local" not in sys.argv[1:], freeq="--freeq" in sys.argv[1:])
 
 
 @procs.function("weather.current", schema=SCHEMA)
