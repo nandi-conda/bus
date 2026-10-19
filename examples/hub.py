@@ -11,6 +11,8 @@ don't collide), and signs every call with an atproto service JWT."""
 
 import hashlib
 import os
+import threading
+import time
 from pathlib import Path
 
 import agentbus
@@ -29,15 +31,31 @@ hub = agentbus.Hub()
 print(f"hub: serving {agentbus.HUB_NAME}", flush=True)
 
 services = env_list("AGENTBUS_SERVICES", "weather")
-if services:
+
+
+def follow_remote():
+    """Sign in to rookery (which may be waking from zero) and follow the relay; local procs
+    work through the hub meanwhile."""
     os.environ.setdefault("AGENTBUS_PDS", PDS)
     machine = hashlib.sha256(Path("/etc/machine-id").read_bytes().strip()).hexdigest()[:8]
     os.environ.setdefault("AGENTBUS_HANDLE", f"hub-{machine}")
-    identity = rookery.Identity.from_env("hub")
+    while True:
+        try:
+            identity = rookery.Identity.from_env("hub")
+            break
+        except (OSError, rookery.RookeryError) as e:
+            if isinstance(e, rookery.RookeryError) and e.status < 500:
+                raise  # a real refusal (e.g. HandleTaken), not rookery still waking
+            print(f"hub: can't sign in to {os.environ['AGENTBUS_PDS']} yet ({e}); retrying in 10s", flush=True)
+            time.sleep(10)
     discovery = relay.Discovery(services, relay=os.environ.get("AGENTBUS_RELAY", relay.DEFAULT_RELAY),
                                 trust=env_list("AGENTBUS_TRUST") or None, identity=identity,
                                 call_timeout=CALL_TIMEOUT).start()
     print(f"hub: following {', '.join(discovery.services)} on {discovery.relay}, "
           f"calling as {identity.handle} ({identity.did})", flush=True)
+
+
+if services:
+    threading.Thread(target=follow_remote, name="follow-remote", daemon=True).start()
 
 hub.run_forever()
