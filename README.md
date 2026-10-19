@@ -88,52 +88,10 @@ To try it without a deployed rookery, run one locally from rookery-pds with `wra
 --var ROOKERY_HOSTNAME:localhost:8787` and use `AGENTBUS_PDS=http://localhost:8787`. Setting
 `AGENTBUS_TEST_PDS` to that URL also runs `tests/test_public.py`.
 
-## On freeq: #bots
+## Remote procs: relay discovery + HTTPS
 
-A public proc also joins `#bots` on freeq as its own bot (`agentbus/freeq.py`), after it has its
-rookery identity; `Procs(name="weather", freeq=True)` does only this part. It signs in with a
-did:key kept where freeq's bot-kit keeps one (`~/.freeq/bots/<name>/agent.key`), runs bot-kit's
-announce sequence (PROVENANCE naming its rookery DID as owner, AGENT REGISTER, AGENT MANIFEST,
-PRESENCE, HEARTBEAT), joins `#bots`, and announces what it provides:
-
-```
-@+agentbus/provides=files.list,weather.current;+agentbus/host=<id> TAGMSG #bots
-```
-
-The same names go in its manifest under `[capabilities.channels] "#bots"`, readable at freeq's
-`/api/v1/agents/manifests/{did}`. (freeq's "Manifest registered … Capabilities:" notice and its
-`/api/v1/channels/{name}/agent-capabilities` list only default capabilities and operator grants,
-so they show none.) It announces again when its
-functions change and whenever someone sends `@+agentbus/discover=1 TAGMSG #bots`.
-
-`examples/bridge.py` (`pixi run bridge`, one per host) joins `#bots`, asks who provides what, and
-provides each announced function on the local hub. A local `procs.call("weather.current", ...)`
-then goes as a tag-only DM to a proc in `#bots` that announced it
-(`+agentbus/call`, `+agentbus/fn`, `+agentbus/args`), which answers with `+agentbus/result` or
-`+agentbus/error`. Each remote proc gets its own connection to the hub, so the hub sees one
-provider per proc: it ranks and fails over between them like local providers, and an app can fan
-out with `providers(name)` and `call(name, provider=...)` (File → Open does this for
-`files.list`: `examples/files/provider.py bots NICK` is a file proc in `#bots`, and
-`files-demo --bots` runs one on a second bus next to the bridge, so its files show up in the
-Open dialog tagged `#bots/NICK`). `bridge.owners()` maps those unique names to each proc's nick and DID.
-
-- Only announcements from signed-in DIDs count; `AGENTBUS_TRUST=did:...,did:...` narrows that.
-- A bridge never imports procs from its own bus (`+agentbus/host`).
-- `AGENTBUS_FREEQ_SERVER` picks the server: `ircs://irc.freeq.at:6697` (default), or
-  `wss://irc.freeq.at/irc`, freeq's WebSocket gateway, which also goes through `$HTTPS_PROXY`
-  for sandboxes that only allow HTTPS out.
-  `AGENTBUS_FREEQ_DEBUG=1` prints every line received.
-- Limits come from freeq: 8 KiB lines (so args and results stay under ~7 KB each), and about
-  10 commands per second per connection, which the bot paces itself to. A proc that crashes
-  stays in `#bots` for 30 s (freeq's reconnect grace), so calls to it time out and fail over until
-  then; a clean exit PARTs at once.
-
-`tests/test_freeq.py` runs a bridge and two procs on separate buses against a freeq server named
-by `AGENTBUS_FREEQ_TEST_SERVER` (e.g. a local `freeq-server` at `irc://127.0.0.1:6889`).
-
-## Over HTTPS: services found through the relay
-
-A proc can also serve its functions as atproto XRPC over HTTPS (`agentbus/xrpc.py`), e.g. on
+There is one hub per host and nothing else in between: a proc on another machine is reached by
+finding it through the atproto relay and calling it over HTTPS. A proc can serve its functions as atproto XRPC over HTTPS (`agentbus/xrpc.py`), e.g. on
 Modal. Bus function `weather.current` is method `org.latha.agentbus.weather.current` of service
 `org.latha.agentbus.weather` (the NSID minus its last segment); lexicons are in `lexicons/`. The proc
 writes one provider record in its rookery repo, collection `org.latha.agentbus.weather`, rkey `self`:
@@ -163,7 +121,6 @@ validation, and have asked the relay to crawl it (`ROOKERY_RELAY_HOSTS` includes
 pixi run test                # Python tests on a private bus (dbus-run-session)
 pixi run demo                # hub + weather proc + an app calling and following weather
 pixi run -e gui files-demo   # hub + a directory proc + a bot proc + the File -> Open GUI
-pixi run -e gui files-demo --bots   # ...plus the bridge and a file proc in #bots on freeq
 ```
 
 The default and `gui` environments install the prebuilt `agentbus` conda package
@@ -181,7 +138,7 @@ After a change to `crates/` (Rust or `agentbus-py/python`) lands on main, run `p
 
 ## Not yet
 
-From PROCS.md: topics over freeq, signing in to freeq as the rookery DID instead of a did:key,
+Topics from remote procs,
 remote providers ranked after local ones (today the hub ranks bridged ones by latency like any
 other), and typed front ends generated from lexicons.
 

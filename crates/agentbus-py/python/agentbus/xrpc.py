@@ -116,9 +116,19 @@ def pds_endpoint(doc):
     return _service(doc, "#atproto_pds", "AtprotoPersonalDataServer").rstrip("/")
 
 
-def _b58decode(text):
-    from .freeq import _B58
+_B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 
+
+def _b58btc(data):
+    n = int.from_bytes(data, "big")
+    out = ""
+    while n:
+        n, r = divmod(n, 58)
+        out = _B58[r] + out
+    return "1" * (len(data) - len(data.lstrip(b"\0"))) + out
+
+
+def _b58decode(text):
     n = 0
     for ch in text:
         n = n * 58 + _B58.index(ch)

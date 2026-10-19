@@ -2,8 +2,6 @@
 
     python provider.py dir NAME PATH     the files under PATH
     python provider.py bot NAME          files a bot wrote, answered a little later
-    python provider.py bots NAME         the same bot as its own proc in #bots on freeq
-                                         (NAME is its nick; AGENTBUS_FREEQ_SERVER picks the server)
 """
 
 import mimetypes
@@ -46,17 +44,12 @@ def bot_files(name):
 def main():
     if len(sys.argv) >= 4 and sys.argv[1] == "dir":
         label, list_files = sys.argv[2], lambda: list(walk(sys.argv[3]))
-    elif len(sys.argv) >= 3 and sys.argv[1] in ("bot", "bots"):
+    elif len(sys.argv) >= 3 and sys.argv[1] == "bot":
         label, list_files = sys.argv[2], lambda: bot_files(sys.argv[2])
     else:
         sys.exit(__doc__)
 
-    if sys.argv[1] == "bots":
-        # Answers travel back over freeq in one tag (~7 KB), so a #bots proc keeps its list short.
-        label = f"#bots/{label}"
-        procs = agentbus.Procs(name=sys.argv[2], description="files.list demo proc", freeq=True)
-    else:
-        procs = agentbus.Procs()
+    procs = agentbus.Procs()
 
     @procs.function(FUNCTION, SCHEMA)
     def files_list(path=""):

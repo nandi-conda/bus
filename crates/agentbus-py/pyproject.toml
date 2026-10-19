@@ -10,7 +10,7 @@ requires-python = ">=3.10"
 license = { text = "MIT" }
 
 [project.optional-dependencies]
-# Public procs: WelcomeMat RSA keys for rookery, the did:key that signs in to freeq.
+# Public procs: WelcomeMat RSA keys for rookery, and checking inter-service JWTs.
 public = ["cryptography>=42"]
 
 [tool.maturin]

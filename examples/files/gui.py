@@ -61,7 +61,7 @@ class OpenDialog(QDialog):
             threading.Thread(target=self.ask, args=(owner,), daemon=True).start()
 
     def ask(self, owner):
-        """One call per provider, so a slow #bots proc never holds up the local disk."""
+        """One call per provider, so a slow remote proc never holds up the local disk."""
         try:
             self.replies.arrived.emit(self.procs.call(FUNCTION, timeout=10, provider=owner))
         except (agentbus.CallError, agentbus.NoProvider, TimeoutError) as e:

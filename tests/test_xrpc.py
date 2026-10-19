@@ -15,7 +15,6 @@ from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 
 import agentbus
 from agentbus import relay, xrpc
-from agentbus.freeq import _b58btc
 
 HUB = "org.latha.agentbus.test.Xrpc"
 PROC_DID = "did:plc:weatherproc"
@@ -36,7 +35,7 @@ class Caller:
                                                   serialization.PublicFormat.CompressedPoint)
         self.doc = {"id": did, "verificationMethod": [{
             "id": f"{did}#atproto", "type": "Multikey", "controller": did,
-            "publicKeyMultibase": "z" + _b58btc(b"\xe7\x01" + point)}]}
+            "publicKeyMultibase": "z" + xrpc._b58btc(b"\xe7\x01" + point)}]}
 
     def service_auth(self, aud, lxm, ttl=60, **claims):
         now = int(time.time())

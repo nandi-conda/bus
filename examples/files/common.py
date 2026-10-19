@@ -2,8 +2,8 @@
 
 A file proc provides the function ``files.list`` on the hub. Args: optional ``path`` (a prefix
 to filter on). Result: ``{"provider": label, "files": [{name, uri, size, mtime, mime}]}``.
-File -> Open asks every provider of it, local procs and #bots procs the bridge imported alike,
-and lists each answer as it arrives.
+File -> Open asks every provider of it, local procs and remote ones the hub found alike, and
+lists each answer as it arrives.
 """
 
 FUNCTION = "files.list"
