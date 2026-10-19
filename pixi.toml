@@ -26,6 +26,9 @@ relay-bridge = "python examples/relay_bridge.py weather"
 weather-service = "python examples/weather_service.py"
 # Hub + weather proc + an app that calls weather.current and follows weather.* for Berlin.
 demo = "dbus-run-session -- python examples/procs_demo.py"
+# systemd user unit for the hub: started now, and by D-Bus activation on the first call.
+install-service = "python tools/service.py install"
+uninstall-service = "python tools/service.py uninstall"
 test = "dbus-run-session -- python -m unittest discover -s tests -v"
 
 # The published package. Python code runs against this, never a local build.

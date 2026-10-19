@@ -184,3 +184,9 @@ After a change to `crates/` (Rust or `agentbus-py/python`) lands on main, run `p
 From PROCS.md: topics over freeq, signing in to freeq as the rookery DID instead of a did:key,
 remote providers ranked after local ones (today the hub ranks bridged ones by latency like any
 other), and typed front ends generated from lexicons.
+
+## Running the hub as a service
+
+`pixi run install-service` installs `agentbus-hub.service` as a systemd user unit (ExecStart is
+this checkout's pixi env python), enables and starts it, and drops a D-Bus activation file so
+the first call to the hub starts it too. `pixi run uninstall-service` removes both.
