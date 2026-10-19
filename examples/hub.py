@@ -5,7 +5,7 @@ $AGENTBUS_SERVICES (comma-separated, default "weather,files") it asks the relay 
 default https://bsky.network) who provides it and makes each provider callable here, so
 procs.call("weather.current", place="Berlin") reaches a proc on Modal like a local one.
 AGENTBUS_TRUST (comma-separated DIDs) limits whose procs are used. The hub has its own rookery
-identity on $AGENTBUS_PDS (default the project's rookery on Modal), enrolled on first start as
+identity on $AGENTBUS_PDS (default the project's rookery, https://rookery.latha.org), enrolled on first start as
 $AGENTBUS_HANDLE (default "hub-" + a hash of this machine's id, so hubs on different machines
 don't collide), and signs every call with an atproto service JWT.
 
