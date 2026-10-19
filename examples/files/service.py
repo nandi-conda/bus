@@ -11,9 +11,11 @@ Identity works as in weather_service.py: with $AGENTBUS_PDS it enrolls as $AGENT
 (default "filebox"; rookery reserves "files"), writes its provider record (collection org.latha.agentbus.files, rkey self)
 naming $AGENTBUS_ENDPOINT, and only answers callers presenting a service JWT addressed to its DID."""
 
+import json
 import os
 import sys
 import threading
+import time
 from urllib.parse import urlsplit
 
 from agentbus import rookery, xrpc
@@ -81,12 +83,20 @@ did = None
 if os.environ.get("AGENTBUS_PDS"):
     endpoint = env("AGENTBUS_ENDPOINT")
     os.environ.setdefault("AGENTBUS_HANDLE", "filebox")
-    ident = rookery.Identity.from_env("files")
-    did = ident.did
+    # Signing in to rookery waits on the PDS, which may itself be waking from zero (~30 s).
+    # Once enrolled, the DID is on the state volume, so serve at once and sign in behind it.
+    saved = rookery.STATE_DIR / "files" / "identity.json"
+    did = json.loads(saved.read_text())["did"] if saved.exists() else rookery.Identity.from_env("files").did
 
     def publish():
-        # Off the startup path: a cold start answers its first call without waiting on the PDS.
-        ident.put_record(files.nsid, "self", files.record(endpoint))
+        while True:
+            try:
+                ident = rookery.Identity.from_env("files")
+                ident.put_record(files.nsid, "self", files.record(endpoint))
+                break
+            except (OSError, rookery.RookeryError) as e:
+                print(f"files: can't publish the provider record yet ({e}); retrying in 10s", flush=True)
+                time.sleep(10)
         print(f"files: {ident.handle} ({did}) provides {files.nsid} at {endpoint}", flush=True)
 
     threading.Thread(target=publish, name="publish-record", daemon=True).start()
