@@ -25,6 +25,7 @@ class FilesTest(unittest.TestCase):
         self.assertEqual((answer["encoding"], answer["mime"]), ("base64", "image/png"))
         self.assertEqual(content_bytes(answer), png)
         self.assertEqual(content_bytes(file_content("a.txt", "héllo".encode())), "héllo".encode())
+        self.assertEqual(file_content("zeros.bin", bytes(64))["encoding"], "base64")  # not \u0000 x 64
         with self.assertRaises(ValueError):
             file_content("big.bin", bytes(MAX_READ + 1))
 

@@ -118,8 +118,8 @@ def read_file(file):
 def write_file(file, encoding, content):
     data = content_bytes({"encoding": encoding, "content": content})
     check_size(check_path(file), len(data))
-    if is_dir(file):
-        raise ValueError(f"{file!r} is a folder")
+    # One round trip to S3: no check that a folder holds this name (each check costs as much as
+    # the put). The mount refuses that itself, as it knows the folders.
     s3.put_object(bucket, file, io.BytesIO(data), len(data), content_type=mime_of(file))
     return {"name": file, "uri": f"s3://{bucket}/{file}", "size": len(data), "mtime": int(time.time()),
             "mime": mime_of(file)}

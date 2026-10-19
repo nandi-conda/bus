@@ -25,6 +25,7 @@ Names are relative paths: ``/``-separated, no empty, ``.`` or ``..`` segments.
 
 import base64
 import mimetypes
+import re
 
 FUNCTION = "files.list"
 READ = "files.read"
@@ -97,13 +98,19 @@ def check_size(name, size):
         raise ValueError(f"{name} is {size} bytes; files.read returns at most {MAX_READ}")
 
 
+# Control characters JSON escapes as \u00XX: six bytes each, so text full of them goes as base64.
+CONTROL = re.compile(rb"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
 def file_content(name, data):
-    """The files.read result for ``data``, the bytes of file ``name``."""
+    """The files.read result for ``data``, the bytes of file ``name``: UTF-8 text as itself,
+    anything else as base64."""
     check_size(name, len(data))
     try:
-        encoding, content = "utf-8", data.decode("utf-8")
+        text = None if CONTROL.search(data) else data.decode("utf-8")
     except UnicodeDecodeError:
-        encoding, content = "base64", base64.b64encode(data).decode("ascii")
+        text = None
+    encoding, content = ("utf-8", text) if text is not None else ("base64", base64.b64encode(data).decode("ascii"))
     return {"name": name, "mime": mime_of(name), "size": len(data), "encoding": encoding,
             "content": content}
 
