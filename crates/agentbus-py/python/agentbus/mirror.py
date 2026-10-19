@@ -1,19 +1,19 @@
 """Stand-ins for remote procs on the local hub.
 
-A bridge (freeq's, or the relay's) learns which remote procs provide which functions and hands
+Relay discovery (``agentbus.relay``) learns which remote procs provide which functions and hands
 that to a ``Mirror``. The mirror gives each remote proc its own connection to the local hub,
 providing the functions it offers and forwarding each call to ``forward(remote, name, args)``.
 So the hub sees one provider per remote proc: it ranks them, fails over between them, and an
 app can list them with ``providers(name)`` and call one with ``call(name, provider=...)``.
 
-D-Bus calls happen on the mirror's own thread, never on the caller's, so a bridge's network
-reader keeps flowing while the hub catches up."""
+D-Bus calls happen on the mirror's own thread, never on the caller's, so a network reader
+keeps flowing while the hub catches up."""
 
 import threading
 
 
 class Remote:
-    """One remote proc: ``key`` identifies it to the bridge, ``label`` names it to people (a
+    """One remote proc: ``key`` identifies it to whoever found it, ``label`` names it to people (a
     nick, a handle or endpoint), ``did`` is who it is, ``functions`` what it provides."""
 
     def __init__(self, key, label, did, functions):
@@ -23,12 +23,12 @@ class Remote:
 
 
 class Mirror:
-    def __init__(self, hub, forward, log_prefix="bridge"):
+    def __init__(self, hub, forward, log_prefix="mirror"):
         self.hub = hub
         self.forward = forward
         self.log_prefix = log_prefix
         self.lock = threading.Lock()
-        self.remotes = {}  # key -> Remote; bridges change it under ``lock``, then call changed()
+        self.remotes = {}  # key -> Remote; finders change it under ``lock``, then call changed()
         self._standing = {}  # Remote -> True, for every remote that still has a hub connection
         self._dirty = threading.Event()
         self._requested = 0  # changes asked for; _done of them have reached the hub

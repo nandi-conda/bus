@@ -1,4 +1,4 @@
-"""Procs over HTTPS: the XRPC service, inter-service auth, and the relay bridge, against a fake
+"""Procs over HTTPS: the XRPC service, inter-service auth, and the relay discovery, against a fake
 relay, PLC and PDS on localhost. Run under dbus-run-session (pixi run test does)."""
 
 import base64
@@ -19,7 +19,7 @@ from agentbus.freeq import _b58btc
 
 HUB = "org.latha.agentbus.test.Xrpc"
 PROC_DID = "did:plc:weatherproc"
-CALLER_DID = "did:plc:bridgecaller"
+CALLER_DID = "did:plc:discoverycaller"
 
 
 def b64(data):
@@ -205,7 +205,7 @@ class FakeNetwork:
         self.records[(did, collection)] = record
 
 
-class RelayBridgeTest(unittest.TestCase):
+class RelayDiscoveryTest(unittest.TestCase):
     def test_discovers_calls_and_drops(self):
         caller = Caller(CALLER_DID)
         weather = weather_service().server(0, "127.0.0.1", did=PROC_DID, resolve={CALLER_DID: caller.doc}.__getitem__)
@@ -218,23 +218,23 @@ class RelayBridgeTest(unittest.TestCase):
 
         hub = agentbus.Hub(HUB)  # noqa: F841 (serves while referenced)
         app = agentbus.Procs(HUB)
-        bridge = relay.Bridge(["weather"], hub=HUB, relay=net.url, plc=net.url, identity=caller, refresh=3600)
-        bridge.mirror.start()
+        discovery = relay.Discovery(["weather"], hub=HUB, relay=net.url, plc=net.url, identity=caller, refresh=3600)
+        discovery.mirror.start()
         try:
-            bridge.discover()
-            self.assertEqual(bridge.functions(), {"weather.current", "weather.boom"})
-            self.assertEqual(bridge.providers("weather.current"), [(endpoint, PROC_DID)])
+            discovery.discover()
+            self.assertEqual(discovery.functions(), {"weather.current", "weather.boom"})
+            self.assertEqual(discovery.providers("weather.current"), [(endpoint, PROC_DID)])
             self.assertEqual(app.call("weather.current", place="Berlin"), {"temp_c": 11.5, "place": "Berlin"})
             with self.assertRaises(agentbus.CallError) as err:
                 app.call("weather.boom")
             self.assertIn("InternalServerError", str(err.exception))
 
             net.repos["org.latha.agentbus.weather"].remove(PROC_DID)
-            bridge.discover()
-            self.assertEqual(bridge.functions(), set())
+            discovery.discover()
+            self.assertEqual(discovery.functions(), set())
             self.assertNotIn("weather.current", app.functions())
         finally:
-            bridge.mirror.stop()
+            discovery.mirror.stop()
             weather.shutdown()
             net.server.shutdown()
 

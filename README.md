@@ -139,15 +139,15 @@ Modal. Bus function `weather.current` is method `org.latha.agentbus.weather.curr
 writes one provider record in its rookery repo, collection `org.latha.agentbus.weather`, rkey `self`:
 `{endpoint, methods, createdAt}` (rookery validates it).
 
-`examples/relay_bridge.py weather` (`pixi run relay-bridge`, one per host) asks the relay
-(`AGENTBUS_RELAY`, default `https://bsky.network`) for
-`com.atproto.sync.listReposByCollection?collection=org.latha.agentbus.weather` every minute, reads each
-repo's record from its PDS, and gives each provider its own connection to the local hub
-(`agentbus/mirror.py`, shared with the freeq bridge). `procs.call("weather.current",
-place="Berlin")` then becomes `GET <endpoint>/xrpc/org.latha.agentbus.weather.current?place=Berlin`;
+The hub (`examples/hub.py`, `pixi run hub`) follows the services in `AGENTBUS_SERVICES`
+(default `weather`): it asks the relay (`AGENTBUS_RELAY`, default `https://bsky.network`) for
+`com.atproto.sync.listReposByCollection?collection=org.latha.agentbus.weather` every minute,
+reads each repo's record from its PDS, and gives each provider its own connection to the hub
+(`agentbus/relay.py`, `agentbus/mirror.py`). `procs.call("weather.current", place="Berlin")`
+then becomes `GET <endpoint>/xrpc/org.latha.agentbus.weather.current?place=Berlin`;
 string-only args go as query params, anything else as a POSTed JSON object.
 
-Auth is atproto inter-service auth. With `AGENTBUS_PDS` the bridge has its own rookery identity
+Auth is atproto inter-service auth. With `AGENTBUS_PDS` the hub has its own rookery identity
 and gets a short-lived JWT for each call from its PDS (`com.atproto.server.getServiceAuth`, `aud`
 = the proc's DID, `lxm` = the method). A proc with an identity (`examples/weather_service.py`
 with `AGENTBUS_PDS` and `AGENTBUS_ENDPOINT`) answers only callers whose JWT checks out against
