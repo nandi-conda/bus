@@ -10,6 +10,7 @@ python = "3.13.*"
 maturin = ">=1.9,<2"
 rust = ">=1.85"
 dbus = "*"
+cryptography = ">=42"
 
 [tasks]
 build = "cargo build --workspace"

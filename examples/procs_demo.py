@@ -1,4 +1,5 @@
-"""Hub + weather proc + app on one bus. Run inside dbus-run-session (pixi run demo does)."""
+"""Hub + weather proc (local only, no rookery identity) + app on one bus. Run inside
+dbus-run-session (pixi run demo does)."""
 
 import os
 import subprocess
@@ -14,7 +15,7 @@ def start(script, *args):
 
 hub = start("hub.py")
 time.sleep(0.5)
-weather = start("weather.py")
+weather = start("weather.py", "--local")
 time.sleep(0.5)
 try:
     sys.exit(subprocess.run([sys.executable, os.path.join(here, "app.py"), *sys.argv[1:]]).returncode)

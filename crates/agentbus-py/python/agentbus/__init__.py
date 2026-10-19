@@ -15,11 +15,16 @@ A proc is an ordinary process that hosts functions and publishes topics::
 
     procs.run_forever()
 
+A public proc (``Procs(name="weather", public=True)``) is also its own bot account on rookery-pds:
+``run_forever`` enrolls it (or loads its key), writes its ``dev.agentbus.proc`` record from what it
+registered, and stamps its DID on everything it publishes. See ``agentbus.rookery``.
+
 Apps call ``procs.call("weather.current", place="Berlin")`` and
 ``procs.subscribe("weather.*", "Berlin")`` without knowing which proc answers. ``Signals`` covers
 plain broadcast request/response signals that need no hub.
 """
 
+import os
 import threading
 from collections import defaultdict
 
@@ -63,10 +68,19 @@ def patterns_overlap(a, b):
 class Procs:
     """A proc's connection: host functions, call functions, publish and subscribe."""
 
-    def __init__(self, hub=HUB_NAME):
+    def __init__(self, hub=HUB_NAME, name=None, description=None, public=False):
+        """``public=True`` gives the proc its own rookery identity (needs ``name``). The PDS comes
+        from $AGENTBUS_PDS, the handle from $AGENTBUS_HANDLE (default ``name``), and an invite for
+        invite-gated instances from $AGENTBUS_INVITE."""
+        if public and not name:
+            raise ValueError("a public proc needs a name")
         self._native = _NativeProcs(hub)
         self.topics = self._native.topics
         self._stopping = threading.Event()
+        self.name, self.description, self.public = name, description, public
+        self.identity = None
+        self._provides = []  # function names, in registration order
+        self._publishes = []  # (topic, subjects)
 
     @property
     def unique_name(self):
@@ -78,7 +92,7 @@ class Procs:
         {"args": <JSON Schema>, "result": <JSON Schema>} the hub enforces."""
 
         def register(fn):
-            self._native.provide(name, lambda args, info: fn(**args), schema)
+            self.provide(name, lambda args, info: fn(**args), schema)
             return fn
 
         return register
@@ -86,6 +100,7 @@ class Procs:
     def provide(self, name, handler, schema=""):
         """Provide ``name`` with ``handler(args, info) -> dict``."""
         self._native.provide(name, handler, schema)
+        self._provides.append(name)
 
     def withdraw(self, name):
         self._native.withdraw(name)
@@ -101,6 +116,9 @@ class Procs:
         return self._native.providers(name)
 
     def publish(self, topic, subject, payload):
+        """Publish on the hub. A public proc's payloads carry ``source``: its DID."""
+        if self.identity:
+            payload = {**payload, "source": self.identity.did}
         return self.topics.publish(topic, subject, payload)
 
     def subscribe(self, pattern, subject=""):
@@ -109,12 +127,15 @@ class Procs:
     def watch_demand(self):
         return self.topics.watch_demand()
 
-    def publisher(self, pattern):
+    def publisher(self, pattern, topics=(), subjects=None):
         """Decorator: run ``fn(subject, stop)`` on its own thread while anyone watches a topic
         matching ``pattern`` for ``subject``; ``stop`` (a threading.Event) is set when the last
-        watcher leaves. Demand for every subject ("") is ignored: there is nothing to produce."""
+        watcher leaves. Demand for every subject ("") is ignored: there is nothing to produce.
+        ``topics`` names the concrete topics it publishes and ``subjects`` says what a subject is
+        (e.g. "place"); a public proc lists them in its record."""
 
         def register(fn):
+            self._publishes.extend((t, subjects) for t in topics)
             watch = self.watch_demand()
             threading.Thread(target=self._follow_demand, args=(pattern, fn, watch), daemon=True).start()
             return fn
@@ -147,8 +168,30 @@ class Procs:
         for stop in running.values():
             stop.set()
 
+    def go_public(self):
+        """Enroll (or load) this proc's rookery account and write its ``dev.agentbus.proc`` record
+        from the functions and topics registered so far. Returns the Identity."""
+        from . import rookery
+
+        pds = os.environ.get("AGENTBUS_PDS")
+        if not pds:
+            raise RuntimeError("a public proc needs AGENTBUS_PDS, e.g. https://rook.host")
+        handle = os.environ.get("AGENTBUS_HANDLE", self.name)
+        ident = rookery.Identity.load_or_enroll(self.name, pds, handle, os.environ.get("AGENTBUS_INVITE"))
+        record = {"$type": rookery.PROC_COLLECTION, "name": self.name, "createdAt": rookery.now(),
+                  "provides": [{"function": f} for f in self._provides],
+                  "publishes": [{"topic": t, **({"subjects": s} if s else {})} for t, s in self._publishes]}
+        if self.description:
+            record["description"] = self.description
+        ident.put_record(rookery.PROC_COLLECTION, self.name, record)
+        self.identity = ident
+        return ident
+
     def run_forever(self):
-        """Serve until Ctrl-C."""
+        """Serve until Ctrl-C. A public proc goes public first."""
+        if self.public and not self.identity:
+            ident = self.go_public()
+            print(f"{self.name}: public as {ident.handle} ({ident.did})", flush=True)
         try:
             self._native.run_forever()
         finally:

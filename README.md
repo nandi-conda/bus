@@ -65,6 +65,25 @@ float `d`, list of str `as`, dict `a{sv}`). `examples/files/` uses them for File
 the GUI broadcasts `org.example.Files1.GetFiles(s request)` and lists every provider's
 `SendFiles(s request, s provider, as files)` reply.
 
+## Public procs
+
+`Procs(name="weather", public=True)` makes a proc its own bot account on
+[rookery-pds](https://github.com/nandi-conda/rookery-pds) (PROCS.md §4.1). On `run_forever` it
+enrolls `$AGENTBUS_HANDLE` (default: its name) on `$AGENTBUS_PDS` with a WelcomeMat RSA-4096 key
+(plus `$AGENTBUS_INVITE` on invite-gated instances), or loads the key it saved under
+`$XDG_STATE_HOME/agentbus/procs/<name>/`. It then writes one `dev.agentbus.proc` record listing the
+functions it provides and the topics it publishes (`@publisher(pattern, topics=[...],
+subjects="place")`), and every payload it publishes carries `source: <its DID>`.
+`examples/weather.py` is public; `--local` keeps it on the local bus.
+
+```sh
+AGENTBUS_PDS=https://rook.host AGENTBUS_INVITE=... pixi run weather
+```
+
+To try it without a deployed rookery, run one locally from rookery-pds with `wrangler dev
+--var ROOKERY_HOSTNAME:localhost:8787` and use `AGENTBUS_PDS=http://localhost:8787`. Setting
+`AGENTBUS_TEST_PDS` to that URL also runs `tests/test_public.py`.
+
 ## Use it
 
 ```sh
@@ -76,6 +95,5 @@ pixi run develop             # build the Python package into the pixi env
 
 ## Not yet
 
-From PROCS.md: `Procs(public=True)` (rookery identity, `dev.agentbus.proc` record, freeq bot),
-the bridge, remote providers ranked after local ones, and typed front ends generated from
+From PROCS.md: the public proc's freeq bot connection, the bridge, remote providers ranked after local ones, and typed front ends generated from
 lexicons.

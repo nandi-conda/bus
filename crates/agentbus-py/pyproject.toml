@@ -9,6 +9,10 @@ description = "Networked procs on D-Bus: functions, topics and broadcast signals
 requires-python = ">=3.10"
 license = { text = "MIT" }
 
+[project.optional-dependencies]
+# Public procs: WelcomeMat RSA keys and signed tokens for rookery.
+public = ["cryptography>=42"]
+
 [tool.maturin]
 python-source = "python"
 module-name = "agentbus._native"
