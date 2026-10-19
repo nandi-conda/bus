@@ -120,6 +120,39 @@ class ProcsTest(unittest.TestCase):
         self.assertFalse(agentbus.patterns_overlap("weather.current", "weather.alert"))
 
 
+class HubRestartTest(unittest.TestCase):
+    def test_provides_again_to_a_new_hub(self):
+        name = HUB + ".Restart"
+        start = [sys.executable, "-c", f"import agentbus, time; h = agentbus.Hub({name!r}); time.sleep(60)"]
+        hub = subprocess.Popen(start)
+        try:
+            proc, app = agentbus.Procs(name), agentbus.Procs(name)
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                try:
+                    proc.function("echo.say")(lambda text: {"text": text})
+                    break
+                except agentbus.HubNotRunning:
+                    time.sleep(0.1)
+            threading.Thread(target=proc.run_forever, daemon=True).start()
+            self.assertEqual(app.call("echo.say", text="hi"), {"text": "hi"})
+            hub.terminate()
+            hub.wait()
+            hub = subprocess.Popen(start)
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                try:
+                    if app.providers("echo.say"):
+                        break
+                except agentbus.BusError:
+                    pass
+                time.sleep(0.1)
+            self.assertEqual(app.call("echo.say", text="again"), {"text": "again"})
+        finally:
+            hub.terminate()
+            hub.wait()
+
+
 class ExamplesTest(unittest.TestCase):
     def demo(self, *args):
         demo = subprocess.run([sys.executable, os.path.join(EXAMPLES, "procs_demo.py"), *args],

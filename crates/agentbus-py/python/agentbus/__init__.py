@@ -104,6 +104,7 @@ class Procs:
         self.name, self.description, self.public = name, description, public
         self.identity = None
         self._provides = []  # function names, in registration order
+        self._handlers = {}  # name -> (handler, schema), to provide again to a restarted hub
         self._publishes = []  # (topic, subjects)
 
     @property
@@ -126,12 +127,14 @@ class Procs:
         """Provide ``name`` with ``handler(args, info) -> dict``."""
         self._native.provide(name, handler, schema)
         self._provides.append(name)
+        self._handlers[name] = (handler, schema)
 
     @_needs_hub
     def withdraw(self, name):
         self._native.withdraw(name)
         if name in self._provides:
             self._provides.remove(name)
+        self._handlers.pop(name, None)
 
     @_needs_hub
     def call(self, name, timeout=None, provider=None, **args):
@@ -219,14 +222,34 @@ class Procs:
         self.identity = ident
         return ident
 
+    def _follow_hub(self):
+        """Provide everything again whenever a new hub takes the hub's name (a restart, e.g.
+        `pixi run install-service`): registrations lived on the old hub and went with it."""
+
+        def on_owner(sig):
+            name, _, new = sig["args"]
+            if name != self.hub or not new:
+                return
+            for fn, (handler, schema) in list(self._handlers.items()):
+                try:
+                    self._native.provide(fn, handler, schema)
+                except BusError as e:
+                    print(f"agentbus: couldn't provide {fn} to the new hub: {e}", flush=True)
+
+        return on_signal(Signals(), "/org/freedesktop/DBus", "org.freedesktop.DBus", "NameOwnerChanged",
+                         on_owner)
+
     def run_forever(self):
-        """Serve until Ctrl-C. A public proc goes public first."""
+        """Serve until Ctrl-C, providing again to a hub that restarts. A public proc goes public
+        first."""
         if self.public and not self.identity:
             ident = self.go_public()
             print(f"{self.name}: public as {ident.handle} ({ident.did})", flush=True)
+        stop_following = self._follow_hub()
         try:
             self._native.run_forever()
         finally:
+            stop_following()
             self._stopping.set()
 
 
