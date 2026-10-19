@@ -24,6 +24,7 @@ Apps call ``procs.call("weather.current", place="Berlin")`` and
 plain broadcast request/response signals that need no hub.
 """
 
+import functools
 import threading
 from collections import defaultdict
 
@@ -45,9 +46,32 @@ from ._native import Procs as _NativeProcs
 
 __all__ = [
     "HUB_NAME", "BusError", "CallError", "CallInfo", "DemandWatch", "Hub", "Listener",
-    "NoProvider", "Procs", "Signals", "Subscription", "Topics", "on_signal", "pattern_matches",
+    "HubNotRunning", "NoProvider", "Procs", "Signals", "Subscription", "Topics", "on_signal", "pattern_matches",
     "patterns_overlap",
 ]
+
+
+class HubNotRunning(BusError):
+    """No hub owns the hub's bus name and D-Bus can't activate one."""
+
+
+def _needs_hub(method):
+    """Turn D-Bus's ServiceUnknown for the hub into HubNotRunning, which says how to start it."""
+
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        try:
+            return method(self, *args, **kwargs)
+        except BusError as e:
+            if "org.freedesktop.DBus.Error.ServiceUnknown" not in str(e):
+                raise
+            raise HubNotRunning(
+                f"the agentbus hub ({self.hub}) isn't running on the session bus. Start it with "
+                "`pixi run hub`, or install it once with `pixi run install-service` so D-Bus "
+                "starts it on demand."
+            ) from None
+
+    return wrapper
 
 
 def patterns_overlap(a, b):
@@ -73,6 +97,7 @@ class Procs:
         invite-gated instances from $AGENTBUS_INVITE."""
         if public and not name:
             raise ValueError("a public proc needs a name")
+        self.hub = hub
         self._native = _NativeProcs(hub)
         self.topics = self._native.topics
         self._stopping = threading.Event()
@@ -96,37 +121,45 @@ class Procs:
 
         return register
 
+    @_needs_hub
     def provide(self, name, handler, schema=""):
         """Provide ``name`` with ``handler(args, info) -> dict``."""
         self._native.provide(name, handler, schema)
         self._provides.append(name)
 
+    @_needs_hub
     def withdraw(self, name):
         self._native.withdraw(name)
         if name in self._provides:
             self._provides.remove(name)
 
+    @_needs_hub
     def call(self, name, timeout=None, provider=None, **args):
         """Call ``name`` through the hub. With ``provider`` (a unique name from
         ``providers(name)``) only that provider is asked. Raises NoProvider, TimeoutError or
         CallError."""
         return self._native.call(name, args, timeout, provider)
 
+    @_needs_hub
     def functions(self):
         return self._native.functions()
 
+    @_needs_hub
     def providers(self, name):
         return self._native.providers(name)
 
+    @_needs_hub
     def publish(self, topic, subject, payload):
         """Publish on the hub. A public proc's payloads carry ``source``: its DID."""
         if self.identity:
             payload = {**payload, "source": self.identity.did}
         return self.topics.publish(topic, subject, payload)
 
+    @_needs_hub
     def subscribe(self, pattern, subject=""):
         return self.topics.subscribe(pattern, subject)
 
+    @_needs_hub
     def watch_demand(self):
         return self.topics.watch_demand()
 

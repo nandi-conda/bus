@@ -31,6 +31,13 @@ class ProcsTest(unittest.TestCase):
         def div(a, b):
             return {"q": a / b}
 
+    def test_no_hub_says_how_to_start_one(self):
+        procs = agentbus.Procs(HUB + ".Missing")
+        with self.assertRaisesRegex(agentbus.HubNotRunning, "pixi run hub"):
+            procs.provide("x.y", lambda args, info: {})
+        with self.assertRaises(agentbus.BusError):
+            procs.call("x.y")
+
     def test_call_by_name(self):
         self.assertEqual(self.app.call("weather.current", place="Berlin"), {"temp_c": 11.5, "place": "Berlin"})
         self.assertIn("weather.current", self.app.functions())
