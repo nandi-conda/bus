@@ -145,7 +145,7 @@ pixi run -e build test-py-local  # build the extension locally and run the Pytho
 pixi run -e build publish        # rattler-build linux-64 + linux-aarch64, upload to prefix.dev
 ```
 
-After a core-lib change lands on main, run `publish` from a cloud container and then
+After a change to `crates/` (Rust or `agentbus-py/python`) lands on main, run `publish` from a cloud container and then
 `pixi update agentbus`. The build number is the main commit count, so no version bump is needed.
 
 ## Not yet
