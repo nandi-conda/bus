@@ -16,6 +16,7 @@ def start(*args):
 
 
 def main():
+    os.environ["AGENTBUS_SERVICES"] = ""  # local only: no relay, no rookery signup
     procs = [start("../hub.py")]
     time.sleep(0.5)
     procs += [start("provider.py", "dir", "local:crates", "../../crates"),

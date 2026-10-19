@@ -13,6 +13,7 @@ def start(script, *args):
     return subprocess.Popen([sys.executable, os.path.join(here, script), *args])
 
 
+os.environ["AGENTBUS_SERVICES"] = ""  # local only: no relay, no rookery signup
 hub = start("hub.py")
 time.sleep(0.5)
 weather = start("weather.py", "--local")
