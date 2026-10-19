@@ -1,6 +1,6 @@
 """Install the hub as a systemd user service.
 
-    pixi run install-service     # write the unit, enable and start the hub
+    pixi run install-service     # write the unit, enable and (re)start the hub
     pixi run uninstall-service   # stop, disable and remove it
 
 ExecStart is this pixi env's python, resolved now, so nothing builds at runtime. A D-Bus
@@ -55,8 +55,9 @@ def install():
         path.write_text(content)
         print(f"wrote {path}")
     systemctl("daemon-reload")
-    systemctl("enable", "--now", UNIT)
-    print(f"{UNIT} enabled and started")
+    systemctl("enable", UNIT)
+    systemctl("restart", UNIT)  # a hub already running picks up the new code
+    print(f"{UNIT} enabled and (re)started")
 
 
 def uninstall():

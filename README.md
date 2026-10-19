@@ -105,8 +105,8 @@ reads each repo's record from its PDS, and gives each provider its own connectio
 then becomes `GET <endpoint>/xrpc/org.latha.agentbus.weather.current?place=Berlin`;
 string-only args go as query params, anything else as a POSTed JSON object.
 
-Auth is atproto inter-service auth. With `AGENTBUS_PDS` the hub has its own rookery identity
-and gets a short-lived JWT for each call from its PDS (`com.atproto.server.getServiceAuth`, `aud`
+Auth is atproto inter-service auth. The hub has its own rookery identity, enrolled on first
+start on `AGENTBUS_PDS` (default: the project's rookery on Modal), and gets a short-lived JWT for each call from its PDS (`com.atproto.server.getServiceAuth`, `aud`
 = the proc's DID, `lxm` = the method). A proc with an identity (`examples/weather_service.py`
 with `AGENTBUS_PDS` and `AGENTBUS_ENDPOINT`) answers only callers whose JWT checks out against
 the `#atproto` key in their DID document (`AGENTBUS_TRUST` narrows to a DID list). Without an
