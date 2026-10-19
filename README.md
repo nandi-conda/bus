@@ -120,6 +120,8 @@ validation, and have asked the relay to crawl it (`ROOKERY_RELAY_HOSTS` includes
 ```sh
 pixi run test                # Python tests on a private bus (dbus-run-session)
 pixi run demo                # hub + weather proc + an app calling and following weather
+pixi run app Paris           # print Paris's weather and exit (needs a running hub)
+pixi run app Paris --watch   # then keep following it until Ctrl-C (--watch 5: five events)
 pixi run -e gui files-demo   # hub + a directory proc + a bot proc + the File -> Open GUI
 ```
 

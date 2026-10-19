@@ -19,7 +19,7 @@ time.sleep(0.5)
 weather = start("weather.py", "--local")
 time.sleep(0.5)
 try:
-    sys.exit(subprocess.run([sys.executable, os.path.join(here, "app.py"), *sys.argv[1:]]).returncode)
+    sys.exit(subprocess.run([sys.executable, os.path.join(here, "app.py"), *(sys.argv[1:] or ["Berlin", "--watch", "4"])]).returncode)
 finally:
     for p in (weather, hub):
         p.terminate()

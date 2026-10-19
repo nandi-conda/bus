@@ -121,9 +121,18 @@ class ProcsTest(unittest.TestCase):
 
 
 class ExamplesTest(unittest.TestCase):
-    def test_procs_demo(self):
-        demo = subprocess.run([sys.executable, os.path.join(EXAMPLES, "procs_demo.py"), "Berlin", "3"],
+    def demo(self, *args):
+        demo = subprocess.run([sys.executable, os.path.join(EXAMPLES, "procs_demo.py"), *args],
                               capture_output=True, text=True, timeout=60)
         self.assertEqual(demo.returncode, 0, demo.stderr)
-        self.assertIn("app: weather.current(Berlin) = {", demo.stdout)
-        self.assertEqual(demo.stdout.count("app: #"), 3)
+        return demo.stdout
+
+    def test_procs_demo(self):
+        out = self.demo("Berlin", "--watch", "3")
+        self.assertIn("app: weather.current(Berlin) = {", out)
+        self.assertEqual(out.count("app: #"), 3)
+
+    def test_app_exits_after_one_call(self):
+        out = self.demo("Paris")
+        self.assertIn("app: weather.current(Paris) = {", out)
+        self.assertNotIn("app: #", out)
